@@ -86,7 +86,7 @@ export default function Home() {
       if (!main) throw new Error("Include at least one .tex file. main.tex is recommended.");
       const valid = files.filter(f => /\\.(tex|bib|txt|sty|cls|png|jpe?g|pdf)$/i.test(f.name) && f.size <= 10*1024*1024);
       if (valid.length !== files.length) throw new Error("Some files are unsupported or exceed the 10 MB per-file limit.");
-      const textFiles = await Promise.all(valid.filter(f=>! /\\.(png|jpe?g|pdf)$/i.test(f.name)).map(async f=>({path:f.name,content:await f.text()})));
+      const textFiles = await Promise.all(valid.filter(f=>! /\\.(png|jpe?g|pdf)$/i.test(f.name)).map(async f=>({path:f===main?"main.tex":f.name,content:await f.text()})));
       const projectName = main.name.replace(/\\.[^.]+$/,"") || "Imported Project";
       const response = await authenticatedFetch("/api/projects", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:projectName,files:textFiles})});
       const data = await response.json(); if (!response.ok) throw new Error(data.error || "Could not create imported project.");
