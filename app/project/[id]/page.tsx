@@ -179,12 +179,23 @@ export default function ProjectEditor() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function downloadSource() {
-    const blob = new Blob([activeContent], { type: activeFile.endsWith(".bib") ? "text/plain;charset=utf-8" : "application/x-tex;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = activeFile; a.click();
-    URL.revokeObjectURL(url);
+  async function downloadSource() {
+    try {
+      let blob: Blob;
+      if (binaryFiles[activeFile]) {
+        const response = await authenticatedFetch(`/api/projects/${id}/files/${binaryFiles[activeFile]}/download-url`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not prepare download.");
+        const fileResponse = await fetch(data.url);
+        if (!fileResponse.ok) throw new Error("Could not download file.");
+        blob = await fileResponse.blob();
+      } else {
+        blob = new Blob([activeContent], { type: activeFile.endsWith(".bib") ? "text/plain;charset=utf-8" : "application/x-tex;charset=utf-8" });
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href=url; a.download=activeFile.split("/").pop()||activeFile; a.click();
+      window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Could not download file."); }
   }
 
   useEffect(() => {
@@ -207,7 +218,20 @@ export default function ProjectEditor() {
       ? { ...extraFiles }
       : { ...extraFiles, "main.tex": source };
     delete supportingFiles[entryFile];
-    const inputBytes = new Blob([entrySource, ...Object.values(supportingFiles)]).size;
+    const compileFiles: Record<string,string> = { ...supportingFiles };
+    for (const [path, fileId] of Object.entries(binaryFiles)) {
+      const signed = await authenticatedFetch(`/api/projects/${id}/files/${fileId}/download-url`);
+      const signedData = await signed.json();
+      if (!signed.ok) throw new Error(signedData.error || "Could not prepare " + path);
+      const binaryResponse = await fetch(signedData.url);
+      if (!binaryResponse.ok) throw new Error("Could not download " + path + " for compilation.");
+      const awaitBlob = await binaryResponse.blob();
+      const dataUrl = await new Promise<string>((resolve,reject) => {
+        const reader = new FileReader(); reader.onload=()=>resolve(String(reader.result||"")); reader.onerror=()=>reject(new Error("Could not read "+path)); reader.readAsDataURL(awaitBlob);
+      });
+      compileFiles[path] = dataUrl;
+    }
+    const inputBytes = new Blob([entrySource, ...Object.values(compileFiles)]).size;
     track("compile_started", { input_bytes: inputBytes, supporting_files: Object.keys(supportingFiles).length, entry_file: entryFile });
     setCompiling(true);
     setCompileError("");
@@ -217,7 +241,7 @@ export default function ProjectEditor() {
       const response = await fetch("/api/compile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: entrySource, files: supportingFiles, entryFile })
+        body: JSON.stringify({ source: entrySource, files: compileFiles, entryFile })
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({ error: "Compilation failed." }));
@@ -303,6 +327,7 @@ export default function ProjectEditor() {
             <div className="tree-folder"><ChevronDown size={14}/><FolderOpen size={16}/> <span>{name}</span></div>
             <button className={`tree-file ${activeFile==="main.tex"?"active":""}`} onClick={()=>setActiveFile("main.tex")}><FileText size={15}/> main.tex</button>
             {Object.keys(extraFiles).sort().map(file=><button key={file} className={`tree-file ${activeFile===file?"active":""}`} onClick={()=>setActiveFile(file)}><FileText size={15}/> {file}</button>)}
+            {Object.keys(binaryFiles).sort().map(file=><button key={file} className={`tree-file ${activeFile===file?"active":""}`} onClick={()=>setActiveFile(file)}><FileText size={15}/> {file}</button>)}
             <button className="tree-file" onClick={()=>document.getElementById("ors-import-files")?.click()}><Plus size={15}/> Add files</button>
             {activeFile.toLowerCase().endsWith(".tex") && <DocumentOutline source={activeContent} onJump={jumpToOutlineLine}/>}
             <ReferenceManager files={extraFiles} onInsert={insertAtCursor}/>
