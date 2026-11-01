@@ -14,8 +14,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # Tectonic's current prebuilt Linux binary requires GLIBC 2.39.
-# Ubuntu 24.04 (Noble) provides GLIBC 2.39; Bookworm only provides 2.36.
-FROM node:20-noble-slim AS runner
+# Debian Trixie ships a newer GLIBC; Bookworm (the build stage) does not.
+FROM debian:trixie-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -24,8 +24,12 @@ ENV HOSTNAME=0.0.0.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl libfontconfig1 libfreetype6 libharfbuzz0b \
-    libicu74 libgraphite2-3 libpng16-16 libssl3t64 \
+    libicu76 libgraphite2-3 libpng16-16 libssl3t64 \
     && rm -rf /var/lib/apt/lists/*
+
+# Copy the Node.js runtime from the build stage. Its glibc requirements
+# are older than Trixie's, so it remains compatible with this runtime.
+COPY --from=builder /usr/local/bin/node /usr/local/bin/node
 
 # Install the official prebuilt Tectonic executable.
 RUN mkdir -p /tmp/tectonic-install && cd /tmp/tectonic-install \
