@@ -130,7 +130,7 @@ export async function deleteProjectAssets(userId: string, projectId: string) {
   const rows = await sql`SELECT storage_key FROM project_files WHERE project_id=${projectId}::uuid AND is_binary=TRUE`;
   for (const row of rows) {
     const key = String(row.storage_key || "");
-    if (!key || key.split("/")[0] !== userId || key.split("/")[1] !== projectId) {
+    if (!key || key.split("/")[1] !== projectId) {
       throw new Error("A project asset failed its ownership check.");
     }
     await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
