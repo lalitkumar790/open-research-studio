@@ -7,7 +7,7 @@ import path from "node:path";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const MAX_PROJECT_BYTES = 3 * 1024 * 1024;
+const MAX_PROJECT_BYTES = 2.5 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_PDF_BYTES = 12 * 1024 * 1024;
