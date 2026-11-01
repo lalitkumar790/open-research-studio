@@ -2,19 +2,19 @@ import "server-only";
 import { neon } from "@neondatabase/serverless";
 import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { auth } from "@/lib/auth/server";
 
 const databaseUrl = process.env.DATABASE_URL;
 const authBaseUrl = process.env.NEON_AUTH_BASE_URL;
-const jwksUrl = process.env.NEON_AUTH_JWKS_URL || "";
+
 const bucket = process.env.NEON_STORAGE_BUCKET || "uploads";
 
-if (!databaseUrl || !authBaseUrl || !jwksUrl) {
+if (!databaseUrl || !authBaseUrl) {
   // Keep build-time imports safe; requests fail closed in getStorageContext().
 }
 
 const sql = databaseUrl ? neon(databaseUrl) : null;
-const jwks = jwksUrl ? createRemoteJWKSet(new URL(jwksUrl)) : null;
+
 
 function ensureObjectStorageConfigured() {
   if (!process.env.AWS_ENDPOINT_URL_S3 || !process.env.AWS_ACCESS_KEY_ID ||
@@ -33,34 +33,28 @@ const s3 = new S3Client({
 
 export type StorageUser = { id: string; neonAuthId: string; email: string };
 
-export async function getStorageContext(request: Request): Promise<{ user: StorageUser } | { error: string; status: number }> {
-  if (!sql || !jwks || !authBaseUrl) {
+export async function getStorageContext(_request: Request): Promise<{ user: StorageUser } | { error: string; status: number }> {
+  if (!sql || !authBaseUrl) {
     return { error: "Cloud storage is not configured for this deployment.", status: 503 };
   }
-  const authorization = request.headers.get("authorization") || "";
-  const match = authorization.match(/^Bearer\s+(.+)$/i);
-  if (!match) return { error: "Sign in is required.", status: 401 };
-
   try {
-    const { payload } = await jwtVerify(match[1], jwks);
-    const subject = typeof payload.sub === "string" ? payload.sub : "";
-    const issuer = typeof payload.iss === "string" ? payload.iss : "";
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(subject) ||
-        !issuer || new URL(issuer).host !== new URL(authBaseUrl).host) {
-      return { error: "The sign-in token is missing required identity claims.", status: 401 };
-    }
-    const authUsers = await sql`SELECT email FROM neon_auth."user" WHERE id=${subject}::uuid LIMIT 1`;
-    const email = typeof payload.email === "string" ? payload.email : String(authUsers[0]?.email || "");
-    if (!email) return { error: "The signed-in account has no verified email address.", status: 401 };
+    // Neon validates its own HttpOnly session cookie. API routes use this
+    // server-side session rather than asking the browser to fetch a JWT.
+    const result = await auth.getSession();
+    if (result.error) return { error: result.error.message || "Sign in is required.", status: 401 };
+    const session = result.data;
+    const neonAuthId = typeof session?.user?.id === "string" ? session.user.id : "";
+    const email = typeof session?.user?.email === "string" ? session.user.email : "";
+    if (!neonAuthId || !email) return { error: "Sign in is required.", status: 401 };
     const rows = await sql`
       INSERT INTO users (neon_auth_user_id, email)
-      VALUES (${subject}::uuid, ${email})
+      VALUES (${neonAuthId}::uuid, ${email})
       ON CONFLICT (neon_auth_user_id)
       DO UPDATE SET email = EXCLUDED.email
       RETURNING id::text AS id
     `;
     if (!rows[0]?.id) return { error: "Could not resolve the signed-in account.", status: 401 };
-    return { user: { id: String(rows[0].id), neonAuthId: subject, email } };
+    return { user: { id: String(rows[0].id), neonAuthId, email } };
   } catch {
     return { error: "Your session is invalid or expired. Please sign in again.", status: 401 };
   }
