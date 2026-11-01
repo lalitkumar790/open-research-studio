@@ -87,6 +87,11 @@ export default function ProjectEditor() {
   const storageKey = useMemo(() => "ors-project-" + id, [id]);
 
   useEffect(() => {
+    const queryName = new URLSearchParams(window.location.search).get("name");
+    if (queryName) setName(queryName);
+  }, []);
+
+  useEffect(() => {
     try {
       const stored = localStorage.getItem(storageKey);
       if (stored) {
@@ -227,7 +232,7 @@ export default function ProjectEditor() {
         <section className="preview-pane">
           <div className="preview-toolbar">
             <div className="preview-tabs"><button className={tab==="preview"?"active":""} onClick={()=>setTab("preview")}>PDF preview</button><button className={tab==="source"?"active":""} onClick={()=>setTab("source")}>Rich preview</button></div>
-            <div className="preview-tools"><span className="compile-status"><span className={pdfUrl ? "compiled" : ""}/> {compiling ? "Compiling…" : pdfUrl ? "PDF ready" : "Not compiled"}</span><button title="Download source" onClick={downloadSource}><Download size={15}/></button><button title="Fullscreen"><Maximize2 size={15}/></button></div>
+            <div className="preview-tools"><span className="compile-status"><span className={pdfUrl ? "compiled" : ""}/> {compiling ? "Compiling…" : pdfUrl ? "PDF ready" : "Not compiled"}</span><button title={pdfUrl ? "Download PDF" : "Download LaTeX source"} onClick={() => { if (pdfUrl) { const a = document.createElement("a"); a.href = pdfUrl; a.download = name.trim().replace(/[^a-z0-9-_]+/gi, "-") + ".pdf"; a.click(); } else downloadSource(); }}><Download size={15}/></button><button title="Fullscreen"><Maximize2 size={15}/></button></div>
           </div>
           {tab === "preview" ? <div className="pdf-viewer">
             {pdfUrl ? <iframe className="pdf-frame" src={pdfUrl} title="Compiled PDF preview"/> : <div className="pdf-empty">
