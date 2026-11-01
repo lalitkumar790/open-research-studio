@@ -41,11 +41,11 @@ function validatePayload(payload: unknown) {
       return { error: "Files must use safe relative paths and supported .tex, .bib, .sty, .cls, .txt, .png, .jpg, .jpeg or .pdf extensions.", status: 400 as const };
     }
     let bytes = Buffer.byteLength(value, "utf8");
-    if (/^data:image\/(png|jpeg);base64,/.test(value)) {
+    if (/^data:(image\/(png|jpeg)|application\/pdf);base64,/.test(value)) {
       const encoded = value.slice(value.indexOf(",") + 1);
       if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) return { error: "Invalid image encoding for " + name + ".", status: 400 as const };
       bytes = Buffer.from(encoded, "base64").byteLength;
-      if (!["png", "jpg", "jpeg"].includes(extension)) return { error: "Image data is not allowed for " + name + ".", status: 400 as const };
+      if (!["png", "jpg", "jpeg", "pdf"].includes(extension)) return { error: "Binary data is not allowed for " + name + ".", status: 400 as const };
     } else if (["png", "jpg", "jpeg", "pdf"].includes(extension)) {
       return { error: "Upload " + name + " as a supported binary asset.", status: 400 as const };
     }
@@ -191,7 +191,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid project file path." }, { status: 400 });
       }
       await mkdir(path.dirname(filePath), { recursive: true });
-      if (/^data:image\/(png|jpeg);base64,/.test(value)) {
+      if (/^data:(image\/(png|jpeg)|application\/pdf);base64,/.test(value)) {
         const encoded = value.slice(value.indexOf(",") + 1);
         await writeFile(filePath, Buffer.from(encoded, "base64"), { flag: "wx" });
       } else {
