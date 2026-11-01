@@ -133,23 +133,32 @@ export default function ProjectEditor() {
 
   function importProjectFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList);
+    const relativePaths = files.map(file => (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name);
+    const firstSegments = relativePaths.map(path => path.split("/")[0]);
+    const commonRoot = files.length > 1 && firstSegments.every(part => part === firstSegments[0]) && relativePaths.some(path => path.includes("/")) ? firstSegments[0] + "/" : "";
     let imported = 0;
-    for (const file of files) {
-      const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
-      const normalizedPath = relativePath.replace(/\\/g, "/");
+    for (let index = 0; index < files.length; index++) {
+      const file = files[index];
+      const normalizedPath = relativePaths[index].replace(/\\/g, "/").slice(commonRoot.length);
       const parts = normalizedPath.split("/");
-      if (parts.some(part => !part || part === "." || part === ".." || part.startsWith(".") || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(part))) { setNotice("Unsafe project path: " + relativePath); continue; }
-      if (!/\.(tex|bib|txt|sty|cls|png|jpe?g|pdf)$/i.test(normalizedPath)) { setNotice("Unsupported file: " + relativePath); continue; }
-      if (normalizedPath === "main.tex") { setNotice("The root main.tex is edited in the main editor. Import supporting files instead."); continue; }
-      if (file.size > 2 * 1024 * 1024) { setNotice(relativePath + " exceeds 2 MB."); continue; }
+      if (parts.some(part => !part || part === "." || part === ".." || part.startsWith(".") || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(part))) { setNotice("Unsafe project path: " + normalizedPath); continue; }
+      if (!/\.(tex|bib|txt|sty|cls|png|jpe?g|pdf)$/i.test(normalizedPath)) { setNotice("Unsupported file: " + normalizedPath); continue; }
+      if (file.size > 2 * 1024 * 1024) { setNotice(normalizedPath + " exceeds 2 MB."); continue; }
       const binary = /\.(png|jpe?g|pdf)$/i.test(normalizedPath);
       const reader = new FileReader();
-      reader.onload = () => { const contents = String(reader.result ?? ""); setExtraFiles(current => ({ ...current, [normalizedPath]: contents })); track("files_imported", { count: 1, bytes: file.size, format: normalizedPath.split(".").pop() || "text" }); };
+      reader.onload = () => {
+        const contents = String(reader.result ?? "");
+        if (normalizedPath === "main.tex") setSource(contents);
+        else setExtraFiles(current => ({ ...current, [normalizedPath]: contents }));
+        track("files_imported", { count: 1, bytes: file.size, format: normalizedPath.split(".").pop() || "text" });
+      };
       if (binary) reader.readAsDataURL(file); else reader.readAsText(file);
       imported++;
     }
     if (imported) setNotice("Importing " + imported + " project file" + (imported === 1 ? "" : "s") + "…");
   }
+
+  useEffect(() => { directoryInputRef.current?.setAttribute("webkitdirectory", ""); }, []);
 
   const isBinaryAsset = /\.(png|jpe?g|pdf)$/i.test(activeFile);
   const activeContent = activeFile === "main.tex" ? source : (isBinaryAsset ? "[Binary project asset — included when compiling]" : (extraFiles[activeFile] ?? ""));
