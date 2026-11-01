@@ -44,8 +44,11 @@ async function readPayload(request: NextRequest) {
     return { error: "The request exceeds the 260 KB upload limit.", status: 413 as const };
   }
   try {
-    const payload = await request.json();
-    return validatePayload(payload);
+    const raw = await request.text();
+    if (Buffer.byteLength(raw, "utf8") > MAX_REQUEST_BYTES) {
+      return { error: "The request exceeds the 260 KB upload limit.", status: 413 as const };
+    }
+    return validatePayload(JSON.parse(raw));
   } catch {
     return { error: "Request body must be valid JSON.", status: 400 as const };
   }
