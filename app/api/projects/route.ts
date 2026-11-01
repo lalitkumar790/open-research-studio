@@ -31,6 +31,8 @@ export async function POST(request: NextRequest) {
     const name = String(body.name || "Untitled Project").trim().slice(0, 160) || "Untitled Project";
     const files = Array.isArray(body.files) ? body.files : [];
     if (files.length > 100) return NextResponse.json({ error: "A project can contain up to 100 text files at creation." }, { status: 400 });
+    const totalBytes = files.reduce((sum: number, file: any) => sum + Buffer.byteLength(String(file.content || ""), "utf8"), 0);
+    if (totalBytes > 2.5 * 1024 * 1024) return NextResponse.json({ error: "The total text content exceeds the 2.5 MB project limit." }, { status: 413 });
     const rows = await sql`
       INSERT INTO projects (owner_id, name) VALUES (${context.user.id}::uuid, ${name})
       RETURNING id::text AS id, name, created_at AS "createdAt", updated_at AS "updatedAt"
