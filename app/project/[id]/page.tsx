@@ -43,7 +43,6 @@ export default function ProjectEditor() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [compileError, setCompileError] = useState("");
   const [compileLogs, setCompileLogs] = useState("");
-  const directoryInputRef = useRef<HTMLInputElement>(null);
 
   const storageKey = useMemo(() => "ors-project-" + id, [id]);
 
@@ -115,7 +114,6 @@ export default function ProjectEditor() {
     if (imported) setNotice("Importing " + imported + " project file" + (imported === 1 ? "" : "s") + "…");
   }
 
-  useEffect(() => { directoryInputRef.current?.setAttribute("webkitdirectory", ""); }, []);
 
   const isBinaryAsset = /\.(png|jpe?g|pdf)$/i.test(activeFile);
   const activeContent = activeFile === "main.tex" ? source : (isBinaryAsset ? "[Binary project asset — included when compiling]" : (extraFiles[activeFile] ?? ""));
@@ -217,15 +215,13 @@ export default function ProjectEditor() {
 
       <div className="editor-workspace">
         {showFiles && <aside className="file-sidebar">
-          <div className="pane-heading"><span>PROJECT</span><div><button title="New file" onClick={()=>{const file=window.prompt("New file name (example: appendix.tex)");if(!file)return;const safe=file.trim();if(!/^[a-zA-Z0-9_-]+\\.(tex|bib|txt|sty|cls)$/.test(safe)){setNotice("Use a simple .tex, .bib, .txt, .sty or .cls filename.");return;}if(safe==="main.tex"||extraFiles[safe]!==undefined){setNotice("That file already exists.");return;}setExtraFiles(current=>({...current,[safe]:""}));setActiveFile(safe);setNotice("Created "+safe);}}><Plus size={15}/></button><button title="Collapse files" onClick={()=>setShowFiles(false)}><PanelLeft size={15}/></button></div></div>
+          <div className="pane-heading"><span>FILES</span><div><button title="Add files to this project" onClick={()=>document.getElementById("ors-import-files")?.click()}><Plus size={15}/></button><button title="Collapse files" onClick={()=>setShowFiles(false)}><PanelLeft size={15}/></button></div></div>
           <div className="file-tree">
             <div className="tree-folder"><ChevronDown size={14}/><FolderOpen size={16}/> <span>{name}</span></div>
             <button className={`tree-file ${activeFile==="main.tex"?"active":""}`} onClick={()=>setActiveFile("main.tex")}><FileText size={15}/> main.tex</button>
             {Object.keys(extraFiles).sort().map(file=><button key={file} className={`tree-file ${activeFile===file?"active":""}`} onClick={()=>setActiveFile(file)}><FileText size={15}/> {file}</button>)}
-            <button className="tree-file" onClick={()=>document.getElementById("ors-import-files")?.click()}><Plus size={15}/> Import files</button>
-            <button className="tree-file" onClick={()=>directoryInputRef.current?.click()}><Folder size={15}/> Import folder</button>
+            <button className="tree-file" onClick={()=>document.getElementById("ors-import-files")?.click()}><Plus size={15}/> Add files</button>
             <input id="ors-import-files" type="file" accept=".tex,.bib,.txt,.sty,.cls,.png,.jpg,.jpeg,.pdf" multiple hidden onChange={e=>{if(e.target.files)importProjectFiles(e.target.files);e.currentTarget.value="";}}/>
-            <input ref={directoryInputRef} type="file" accept=".tex,.bib,.txt,.sty,.cls,.png,.jpg,.jpeg,.pdf" multiple hidden onChange={e=>{if(e.target.files)importProjectFiles(e.target.files);e.currentTarget.value="";}}/>
           </div>
           <div className="file-sidebar-bottom"><Settings size={15}/> Project settings</div>
         </aside>}
