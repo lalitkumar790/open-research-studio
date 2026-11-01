@@ -59,7 +59,7 @@ function validatePayload(payload: unknown) {
 async function readPayload(request: NextRequest) {
   const contentLength = Number(request.headers.get("content-length") || 0);
   if (contentLength > MAX_REQUEST_BYTES) {
-    return { error: "The request exceeds the 260 KB upload limit.", status: 413 as const };
+    return { error: "The request exceeds the 4 MB upload limit.", status: 413 as const };
   }
   try {
     const raw = await request.text();
