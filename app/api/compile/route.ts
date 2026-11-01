@@ -7,8 +7,9 @@ import path from "node:path";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const MAX_SOURCE_BYTES = 200 * 1024;
-const MAX_REQUEST_BYTES = 260 * 1024;
+const MAX_PROJECT_BYTES = 3 * 1024 * 1024;
+const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_PDF_BYTES = 12 * 1024 * 1024;
 const COMPILE_TIMEOUT_MS = 35_000;
 const MAX_CONCURRENT_COMPILES = 2;
@@ -26,15 +27,32 @@ function validatePayload(payload: unknown) {
     return { error: "Provide non-empty LaTeX source in the 'source' field.", status: 400 as const };
   }
   const entries = Object.entries(files);
-  if (entries.length > 20) return { error: "A project can include at most 20 supporting files.", status: 413 as const };
+  if (entries.length > 40) return { error: "A project can include at most 40 supporting files.", status: 413 as const };
   let totalBytes = Buffer.byteLength(source, "utf8");
   for (const [name, value] of entries) {
-    if (!/^[a-zA-Z0-9_-]+\.(tex|bib|txt|sty|cls)$/.test(name) || typeof value !== "string") {
-      return { error: "Supporting files must have safe base names and .tex, .bib, .txt, .sty or .cls extensions.", status: 400 as const };
+    const normalized = name.replace(/\\/g, "/");
+    const segments = normalized.split("/");
+    const extension = segments.at(-1)?.split(".").pop()?.toLowerCase();
+    const safePath = normalized === name && !normalized.startsWith("/") &&
+      segments.every(segment => segment && segment !== "." && segment !== ".." && /^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(segment)) &&
+      !segments.some(segment => segment.startsWith("."));
+    const supported = ["tex", "bib", "txt", "sty", "cls", "png", "jpg", "jpeg", "pdf"];
+    if (!safePath || !extension || !supported.includes(extension) || typeof value !== "string") {
+      return { error: "Files must use safe relative paths and supported .tex, .bib, .sty, .cls, .txt, .png, .jpg, .jpeg or .pdf extensions.", status: 400 as const };
     }
-    totalBytes += Buffer.byteLength(value, "utf8");
+    let bytes = Buffer.byteLength(value, "utf8");
+    if (/^data:image\/(png|jpeg);base64,/.test(value)) {
+      const encoded = value.slice(value.indexOf(",") + 1);
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) return { error: "Invalid image encoding for " + name + ".", status: 400 as const };
+      bytes = Buffer.from(encoded, "base64").byteLength;
+      if (!["png", "jpg", "jpeg"].includes(extension)) return { error: "Image data is not allowed for " + name + ".", status: 400 as const };
+    } else if (["png", "jpg", "jpeg", "pdf"].includes(extension)) {
+      return { error: "Upload " + name + " as a supported binary asset.", status: 400 as const };
+    }
+    if (bytes > MAX_FILE_BYTES) return { error: name + " exceeds the 2 MB per-file limit.", status: 413 as const };
+    totalBytes += bytes;
   }
-  if (totalBytes > MAX_SOURCE_BYTES) return { error: "The total project source limit is 200 KB.", status: 413 as const };
+  if (totalBytes > MAX_PROJECT_BYTES) return { error: "The total project size limit is 3 MB.", status: 413 as const };
   return { source, files: files as Record<string, string>, totalBytes };
 }
 
@@ -168,7 +186,17 @@ export async function POST(request: NextRequest) {
     await mkdir("/tmp/ors-tectonic-cache", { recursive: true });
     await writeFile(path.join(workspace, "main.tex"), parsed.source, { encoding: "utf8", flag: "wx" });
     for (const [name, value] of Object.entries(parsed.files)) {
-      await writeFile(path.join(workspace, name), value, { encoding: "utf8", flag: "wx" });
+      const filePath = path.resolve(workspace, name);
+      if (!filePath.startsWith(workspace + path.sep)) {
+        return NextResponse.json({ error: "Invalid project file path." }, { status: 400 });
+      }
+      await mkdir(path.dirname(filePath), { recursive: true });
+      if (/^data:image\/(png|jpeg);base64,/.test(value)) {
+        const encoded = value.slice(value.indexOf(",") + 1);
+        await writeFile(filePath, Buffer.from(encoded, "base64"), { flag: "wx" });
+      } else {
+        await writeFile(filePath, value, { encoding: "utf8", flag: "wx" });
+      }
     }
 
     let result;
