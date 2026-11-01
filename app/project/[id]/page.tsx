@@ -90,6 +90,9 @@ export default function ProjectEditor() {
     const relativePaths = files.map(file => (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name);
     const firstSegments = relativePaths.map(path => path.split("/")[0]);
     const commonRoot = files.length > 0 && firstSegments.every(part => part === firstSegments[0]) && relativePaths.every(path => path.includes("/")) ? firstSegments[0] + "/" : "";
+    const projectPaths = relativePaths.map(path => path.replace(/\\/g, "/").slice(commonRoot.length));
+    const entryTexPath = projectPaths.find(path => path.toLowerCase() === "main.tex")
+      ?? projectPaths.find(path => path.toLowerCase().endsWith(".tex"));
     let imported = 0;
     for (let index = 0; index < files.length; index++) {
       const file = files[index];
@@ -102,7 +105,7 @@ export default function ProjectEditor() {
       const reader = new FileReader();
       reader.onload = () => {
         const contents = String(reader.result ?? "");
-        if (normalizedPath === "main.tex") setSource(contents);
+        if (normalizedPath === entryTexPath) setSource(contents);
         else setExtraFiles(current => ({ ...current, [normalizedPath]: contents }));
         track("files_imported", { count: 1, bytes: file.size, format: normalizedPath.split(".").pop() || "text" });
       };
