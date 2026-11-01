@@ -135,7 +135,7 @@ export default function ProjectEditor() {
     const files = Array.from(fileList);
     const relativePaths = files.map(file => (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name);
     const firstSegments = relativePaths.map(path => path.split("/")[0]);
-    const commonRoot = files.length > 1 && firstSegments.every(part => part === firstSegments[0]) && relativePaths.some(path => path.includes("/")) ? firstSegments[0] + "/" : "";
+    const commonRoot = files.length > 0 && firstSegments.every(part => part === firstSegments[0]) && relativePaths.every(path => path.includes("/")) ? firstSegments[0] + "/" : "";
     let imported = 0;
     for (let index = 0; index < files.length; index++) {
       const file = files[index];
