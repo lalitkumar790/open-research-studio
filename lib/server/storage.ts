@@ -16,6 +16,12 @@ if (!databaseUrl || !authBaseUrl || !jwksUrl) {
 const sql = databaseUrl ? neon(databaseUrl) : null;
 const jwks = jwksUrl ? createRemoteJWKSet(new URL(jwksUrl)) : null;
 
+function ensureObjectStorageConfigured() {
+  if (!process.env.AWS_ENDPOINT_URL_S3 || !process.env.AWS_ACCESS_KEY_ID ||
+      !process.env.AWS_SECRET_ACCESS_KEY || !process.env.AWS_REGION) {
+    throw new Error("Private file storage is not configured. Add the Neon S3 credentials to this Vercel environment.");
+  }
+}
 const s3 = new S3Client({
   region: process.env.AWS_REGION,
   endpoint: process.env.AWS_ENDPOINT_URL_S3,
@@ -76,6 +82,7 @@ export async function canAccessProject(userId: string, projectId: string, write 
 export async function createUploadUrl(input: {
   userId: string; projectId: string; path: string; contentType: string; byteSize: number;
 }) {
+  ensureObjectStorageConfigured();
   if (!sql) throw new Error("Database is unavailable.");
   const safePath = input.path.replace(/\\/g, "/");
   const segments = safePath.split("/");
@@ -106,6 +113,7 @@ export async function createUploadUrl(input: {
 }
 
 export async function createDownloadUrl(userId: string, projectId: string, fileId: string) {
+  ensureObjectStorageConfigured();
   if (!sql) throw new Error("Database is unavailable.");
   const rows = await sql`
     SELECT storage_key, path, mime_type
@@ -130,6 +138,7 @@ export async function createDownloadUrl(userId: string, projectId: string, fileI
 export async function deleteProjectAssets(userId: string, projectId: string) {
   if (!sql) throw new Error("Database is unavailable.");
   const rows = await sql`SELECT storage_key FROM project_files WHERE project_id=${projectId}::uuid AND is_binary=TRUE`;
+  if (rows.length) ensureObjectStorageConfigured();
   for (const row of rows) {
     const key = String(row.storage_key || "");
     if (!key || key.split("/")[1] !== projectId) {
@@ -140,6 +149,7 @@ export async function deleteProjectAssets(userId: string, projectId: string) {
 }
 
 export async function verifyUploadedObject(userId: string, projectId: string, fileId: string) {
+  ensureObjectStorageConfigured();
   if (!sql) throw new Error("Database is unavailable.");
   const rows = await sql`
     SELECT storage_key FROM project_files
