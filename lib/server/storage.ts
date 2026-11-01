@@ -38,12 +38,14 @@ export async function getStorageContext(request: Request): Promise<{ user: Stora
   try {
     const { payload } = await jwtVerify(match[1], jwks);
     const subject = typeof payload.sub === "string" ? payload.sub : "";
-    const email = typeof payload.email === "string" ? payload.email : "";
     const issuer = typeof payload.iss === "string" ? payload.iss : "";
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(subject) ||
-        !email || !issuer || new URL(issuer).host !== new URL(authBaseUrl).host) {
+        !issuer || new URL(issuer).host !== new URL(authBaseUrl).host) {
       return { error: "The sign-in token is missing required identity claims.", status: 401 };
     }
+    const authUsers = await sql`SELECT email FROM neon_auth."user" WHERE id=${subject}::uuid LIMIT 1`;
+    const email = typeof payload.email === "string" ? payload.email : String(authUsers[0]?.email || "");
+    if (!email) return { error: "The signed-in account has no verified email address.", status: 401 };
     const rows = await sql`
       INSERT INTO users (neon_auth_user_id, email)
       VALUES (${subject}::uuid, ${email})
