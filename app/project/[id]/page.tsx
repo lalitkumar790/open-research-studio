@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { track } from "@vercel/analytics";
 import DocumentOutline from "../../../components/DocumentOutline";
+import ReferenceManager from "../../../components/ReferenceManager";
 import {
   ArrowLeft, ChevronDown, ChevronRight, FileText, Folder, FolderOpen,
   PanelLeft, PanelRight, Search, Settings, Sparkles, Play, Download,
@@ -45,6 +46,7 @@ export default function ProjectEditor() {
   const [compileError, setCompileError] = useState("");
   const [compileLogs, setCompileLogs] = useState("");
   const editorRef = useRef<HTMLTextAreaElement>(null);
+  const pendingCursorRef = useRef<number | null>(null);
 
   const storageKey = useMemo(() => "ors-project-" + id, [id]);
 
@@ -119,6 +121,33 @@ export default function ProjectEditor() {
 
   const isBinaryAsset = /\.(png|jpe?g|pdf)$/i.test(activeFile);
   const activeContent = activeFile === "main.tex" ? source : (isBinaryAsset ? "[Binary project asset — included when compiling]" : (extraFiles[activeFile] ?? ""));
+
+  useEffect(() => {
+    if (pendingCursorRef.current === null || isBinaryAsset) return;
+    const position = pendingCursorRef.current;
+    const editor = editorRef.current;
+    if (editor) {
+      editor.focus();
+      editor.setSelectionRange(position, position);
+    }
+    pendingCursorRef.current = null;
+  }, [activeContent, isBinaryAsset]);
+
+  function insertAtCursor(text: string) {
+    if (!activeFile.toLowerCase().endsWith(".tex")) {
+      setNotice("Open a .tex file to insert a citation.");
+      return;
+    }
+    const editor = editorRef.current;
+    const start = editor?.selectionStart ?? activeContent.length;
+    const end = editor?.selectionEnd ?? start;
+    const next = activeContent.slice(0, start) + text + activeContent.slice(end);
+    pendingCursorRef.current = start + text.length;
+    if (activeFile === "main.tex") setSource(next);
+    else setExtraFiles(current => ({ ...current, [activeFile]: next }));
+    setSaved(false);
+    setNotice("Citation inserted into " + activeFile);
+  }
 
   function downloadProject() {
     const bundle = { format: "open-research-studio-project", version: 1, exportedAt: new Date().toISOString(), name, source, extraFiles };
@@ -212,8 +241,15 @@ export default function ProjectEditor() {
   }
 
   function insertSection() {
-    setSource(current => current + "\n\n\\section{New Section}\nWrite your content here.\n");
-    setNotice("Section inserted into main.tex");
+    if (!activeFile.toLowerCase().endsWith(".tex")) {
+      setNotice("Open a .tex file to insert a section.");
+      return;
+    }
+    const section = "\\n\\n\\section{New Section}\\nWrite your content here.\\n";
+    const next = activeContent + section;
+    if (activeFile === "main.tex") setSource(next);
+    else setExtraFiles(current => ({ ...current, [activeFile]: next }));
+    setNotice("Section inserted into " + activeFile);
     window.setTimeout(() => setNotice(""), 2500);
   }
 
@@ -248,6 +284,7 @@ export default function ProjectEditor() {
             {Object.keys(extraFiles).sort().map(file=><button key={file} className={`tree-file ${activeFile===file?"active":""}`} onClick={()=>setActiveFile(file)}><FileText size={15}/> {file}</button>)}
             <button className="tree-file" onClick={()=>document.getElementById("ors-import-files")?.click()}><Plus size={15}/> Add files</button>
             {activeFile.toLowerCase().endsWith(".tex") && <DocumentOutline source={activeContent} onJump={jumpToOutlineLine}/>}
+            <ReferenceManager files={extraFiles} onInsert={insertAtCursor}/>
             <input id="ors-import-files" type="file" accept=".tex,.bib,.txt,.sty,.cls,.png,.jpg,.jpeg,.pdf" multiple hidden onChange={e=>{if(e.target.files)importProjectFiles(e.target.files);e.currentTarget.value="";}}/>
           </div>
           <div className="file-sidebar-bottom"><Settings size={15}/> Project settings</div>
