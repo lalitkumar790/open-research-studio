@@ -153,7 +153,7 @@ export default function ProjectEditor() {
       setCompileError("The selected .tex file is empty or unavailable.");
       return;
     }
-    const supportingFiles = entryFile === "main.tex"
+    const supportingFiles: Record<string, string> = entryFile === "main.tex"
       ? { ...extraFiles }
       : { ...extraFiles, "main.tex": source };
     delete supportingFiles[entryFile];
