@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { track } from "@vercel/analytics";
+import DocumentOutline from "@/components/DocumentOutline";
 import {
   ArrowLeft, ChevronDown, ChevronRight, FileText, Folder, FolderOpen,
   PanelLeft, PanelRight, Search, Settings, Sparkles, Play, Download,
@@ -43,6 +44,7 @@ export default function ProjectEditor() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [compileError, setCompileError] = useState("");
   const [compileLogs, setCompileLogs] = useState("");
+  const editorRef = useRef<HTMLTextAreaElement>(null);
 
   const storageKey = useMemo(() => "ors-project-" + id, [id]);
 
@@ -195,6 +197,16 @@ export default function ProjectEditor() {
     setAssistantText("");
   }
 
+  function jumpToOutlineLine(line: number) {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const lines = activeContent.split("\n");
+    const position = lines.slice(0, Math.max(0, line - 1)).reduce((total, item) => total + item.length + 1, 0);
+    editor.focus();
+    editor.setSelectionRange(position, position);
+    editor.scrollTop = Math.max(0, (line - 3) * 22);
+  }
+
   function insertSection() {
     setSource(current => current + "\n\n\\section{New Section}\nWrite your content here.\n");
     setNotice("Section inserted into main.tex");
@@ -231,6 +243,7 @@ export default function ProjectEditor() {
             <button className={`tree-file ${activeFile==="main.tex"?"active":""}`} onClick={()=>setActiveFile("main.tex")}><FileText size={15}/> main.tex</button>
             {Object.keys(extraFiles).sort().map(file=><button key={file} className={`tree-file ${activeFile===file?"active":""}`} onClick={()=>setActiveFile(file)}><FileText size={15}/> {file}</button>)}
             <button className="tree-file" onClick={()=>document.getElementById("ors-import-files")?.click()}><Plus size={15}/> Add files</button>
+            {activeFile.toLowerCase().endsWith(".tex") && <DocumentOutline source={activeContent} onJump={jumpToOutlineLine}/>}
             <input id="ors-import-files" type="file" accept=".tex,.bib,.txt,.sty,.cls,.png,.jpg,.jpeg,.pdf" multiple hidden onChange={e=>{if(e.target.files)importProjectFiles(e.target.files);e.currentTarget.value="";}}/>
           </div>
           <div className="file-sidebar-bottom"><Settings size={15}/> Project settings</div>
@@ -248,6 +261,7 @@ export default function ProjectEditor() {
           <div className="code-editor-wrap">
             <div className="line-numbers">{activeContent.split("\n").map((_,i)=><span key={i}>{i+1}</span>)}</div>
             <textarea
+              ref={editorRef}
               className="latex-editor"
               spellCheck={false}
               value={activeContent}
