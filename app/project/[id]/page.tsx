@@ -143,7 +143,11 @@ export default function ProjectEditor() {
 
   async function compileDocument() {
     const compileStartedAt = Date.now();
-    const entryFile = activeFile.toLowerCase().endsWith(".tex") ? activeFile : "main.tex";
+    if (!activeFile.toLowerCase().endsWith(".tex")) {
+      setCompileError("Open a .tex file before compiling.");
+      return;
+    }
+    const entryFile = activeFile;
     const entrySource = entryFile === "main.tex" ? source : extraFiles[entryFile];
     if (typeof entrySource !== "string" || !entrySource.trim()) {
       setCompileError("The selected .tex file is empty or unavailable.");
@@ -230,7 +234,7 @@ export default function ProjectEditor() {
           <button className="editor-ghost" onClick={downloadSource}><Download size={16}/> Export file</button>
           <button className="editor-ghost" onClick={downloadProject}><Download size={16}/> Export project</button>
           <button className="editor-ghost" onClick={()=>setNotice("Sharing will be available after accounts and permissions are configured.")}><Share2 size={16}/> Share</button>
-          <button className="compile-button" onClick={compileDocument} disabled={compiling}><Play size={15} fill="currentColor"/> {compiling ? "Compiling…" : "Compile"}</button>
+          <button className="compile-button" onClick={compileDocument} disabled={compiling || !activeFile.toLowerCase().endsWith(".tex")}><Play size={15} fill="currentColor"/> {compiling ? "Compiling…" : "Compile"}</button>
           <button className="editor-icon" aria-label="More options"><MoreHorizontal size={19}/></button>
         </div>
       </header>
