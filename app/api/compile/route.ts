@@ -80,8 +80,8 @@ export async function POST(request: NextRequest) {
   if (entries.length > 20) return NextResponse.json({ error: "A project can include at most 20 supporting files." }, { status: 413 });
   let totalBytes = Buffer.byteLength(source, "utf8");
   for (const [name, content] of entries) {
-    if (!/^[a-zA-Z0-9_-]+\.(bib|txt|sty|cls)$/.test(name) || typeof content !== "string") {
-      return NextResponse.json({ error: "Supporting files must have safe names and .bib, .txt, .sty or .cls extensions." }, { status: 400 });
+    if (!/^[a-zA-Z0-9_-]+\.(tex|bib|txt|sty|cls)$/.test(name) || typeof content !== "string") {
+      return NextResponse.json({ error: "Supporting files must have safe names and .tex, .bib, .txt, .sty or .cls extensions." }, { status: 400 });
     }
     totalBytes += Buffer.byteLength(content, "utf8");
   }
