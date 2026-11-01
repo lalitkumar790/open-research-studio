@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Settings, PanelLeft, Search, ListFilter, Grid3X3, Plus, ChevronDown,
   ChevronUp, MoreHorizontal, FileText, FolderPlus, Upload, FilePlus2,
-  LayoutGrid, Share2, Trash2, Pencil, X, Check, Clock3, ArrowUpDown
+  LayoutGrid, Share2, Trash2, Pencil, X, Check, Clock3, ArrowUpDown, BookOpen
 } from "lucide-react";
 
 type Project = { id: number; name: string; created: string; kind?: "document" | "project"; shared?: boolean };
@@ -105,7 +105,8 @@ export default function Home() {
     <main className="app-shell" onClick={() => { if (menu) setMenu(null); if (selected !== null) setSelected(null); }}>
       <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`} onClick={e => e.stopPropagation()}>
         <div className="side-top">
-          <button className="icon-button settings-button" aria-label="Settings"><Settings size={22}/></button>
+          <a className="workspace-brand" href="/" aria-label="Open Research Studio home"><span className="workspace-brand-mark"><BookOpen size={17}/></span><span className="workspace-brand-name">Open Research <small>STUDIO</small></span></a>
+          <button className="icon-button settings-button" aria-label="Settings" title="Settings"><Settings size={19}/></button>
           <button className="icon-button collapse-button" aria-label="Collapse sidebar" onClick={() => setCollapsed(v => !v)}><PanelLeft size={18}/></button>
         </div>
         <nav className="side-nav">
