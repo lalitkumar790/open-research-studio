@@ -74,7 +74,9 @@ export default function Home() {
     const id = Date.now();
     const projectName = example ? "Research Paper — Example" : "Untitled Project";
     const p = { id, name: projectName, created: "now", kind: "document" as const };
-    setProjects(current => [p, ...current]);
+    const nextProjects = [p, ...projects];
+    setProjects(nextProjects);
+    try { localStorage.setItem("ors-dashboard-projects-v1", JSON.stringify(nextProjects)); } catch {}
     setMenu(null);
     window.location.href = `/project/${id}?name=${encodeURIComponent(projectName)}&template=${example ? "example" : "blank"}`;
   }
