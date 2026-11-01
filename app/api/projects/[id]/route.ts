@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { canAccessProject, getStorageContext } from "@/lib/server/storage";
+import { canAccessProject, deleteProjectAssets, getStorageContext } from "@/lib/server/storage";
 import { neon } from "@neondatabase/serverless";
 
 export const runtime = "nodejs";
@@ -38,7 +38,13 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   if ("error" in context) return NextResponse.json({ error: context.error }, { status: context.status });
   if (!uuid.test(params.id)) return NextResponse.json({ error: "Invalid project ID." }, { status: 400 });
   if (!sql) return NextResponse.json({ error: "Database is not configured." }, { status: 503 });
-  const rows = await sql`UPDATE projects SET deleted_at=NOW() WHERE id=${params.id}::uuid AND owner_id=${context.user.id}::uuid AND deleted_at IS NULL RETURNING id`;
-  if (!rows.length) return NextResponse.json({ error: "Only the project owner can delete this project." }, { status: 404 });
-  return NextResponse.json({ deleted: true });
+  const owned = await sql`SELECT id FROM projects WHERE id=${params.id}::uuid AND owner_id=${context.user.id}::uuid AND deleted_at IS NULL LIMIT 1`;
+  if (!owned.length) return NextResponse.json({ error: "Only the project owner can delete this project." }, { status: 404 });
+  try {
+    await deleteProjectAssets(context.user.id, params.id);
+    await sql`DELETE FROM projects WHERE id=${params.id}::uuid AND owner_id=${context.user.id}::uuid`;
+    return NextResponse.json({ deleted: true });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not delete project assets." }, { status: 502 });
+  }
 }
