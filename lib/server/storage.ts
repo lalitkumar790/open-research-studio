@@ -1,6 +1,6 @@
 import "server-only";
 import { neon } from "@neondatabase/serverless";
-import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
@@ -123,6 +123,18 @@ export async function createDownloadUrl(userId: string, projectId: string, fileI
   });
   const url = await getSignedUrl(s3, command, { expiresIn: 120 });
   return { url, path: String(file.path), expiresIn: 120 };
+}
+
+export async function deleteProjectAssets(userId: string, projectId: string) {
+  if (!sql) throw new Error("Database is unavailable.");
+  const rows = await sql`SELECT storage_key FROM project_files WHERE project_id=${projectId}::uuid AND is_binary=TRUE`;
+  for (const row of rows) {
+    const key = String(row.storage_key || "");
+    if (!key || key.split("/")[0] !== userId || key.split("/")[1] !== projectId) {
+      throw new Error("A project asset failed its ownership check.");
+    }
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+  }
 }
 
 export async function verifyUploadedObject(userId: string, projectId: string, fileId: string) {
