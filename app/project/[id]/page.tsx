@@ -9,50 +9,50 @@ import {
   Check, AlertCircle, X, Copy, Maximize2
 } from "lucide-react";
 
-const starter = String.raw`\\documentclass[11pt]{article}
-\\usepackage[margin=1in]{geometry}
-\\usepackage{amsmath, amssymb}
-\\usepackage{graphicx}
-\\usepackage{booktabs}
-\\usepackage{cite}
+const starter = String.raw`\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{cite}
 
-\\title{Research Project}
-\\author{Author Name}
-\\date{\\today}
+\title{Research Project}
+\author{Author Name}
+\date{\today}
 
-\\begin{document}
+\begin{document}
 
-\\maketitle
+\maketitle
 
-\\begin{abstract}
+\begin{abstract}
 Write your abstract here. Summarize the research problem, methodology,
 key findings, and contribution of this work.
-\\end{abstract}
+\end{abstract}
 
-\\section{Introduction}
+\section{Introduction}
 Introduce the research problem and explain why it matters. Describe the
 context, motivation, and the specific gap this work addresses.
 
-\\section{Related Work}
+\section{Related Work}
 Review relevant literature and position your contribution.
 
-\\section{Methodology}
+\section{Methodology}
 Describe the proposed approach in enough detail for reproducibility.
 
-\\begin{equation}
+\begin{equation}
   E = mc^2
-\\end{equation}
+\end{equation}
 
-\\section{Results and Discussion}
+\section{Results and Discussion}
 Present your findings and discuss their implications.
 
-\\section{Conclusion}
+\section{Conclusion}
 Summarize the contributions and outline future work.
 
-\\bibliographystyle{plain}
-\\bibliography{references}
+\bibliographystyle{plain}
+\bibliography{references}
 
-\\end{document}
+\end{document}
 `;
 
 const outline = [
