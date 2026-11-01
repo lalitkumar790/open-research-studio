@@ -32,6 +32,7 @@ export default function ProjectEditor() {
   const id = String(params.id ?? "project");
   const [name, setName] = useState("New Project");
   const [source, setSource] = useState("");
+  const [mainFileExists, setMainFileExists] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [extraFiles, setExtraFiles] = useState<Record<string, string>>({});
   const [binaryFiles, setBinaryFiles] = useState<Record<string, string>>({});
@@ -69,7 +70,10 @@ export default function ProjectEditor() {
         for (const file of data.files || []) {
           if (file.isBinary) binary[file.path] = file.id;
           else if (typeof file.content === "string" && file.path !== "main.tex") text[file.path] = file.content;
-          else if (file.path === "main.tex" && typeof file.content === "string") setSource(file.content);
+          else if (file.path === "main.tex" && typeof file.content === "string") {
+            setSource(file.content);
+            setMainFileExists(true);
+          }
         }
         setExtraFiles(text);
         setBinaryFiles(binary);
@@ -86,7 +90,9 @@ export default function ProjectEditor() {
     if (!hydrated) return;
     setSaved(false);
     const timer = window.setTimeout(() => {
-      const snapshot = { name, files: [{path:"main.tex",content:source},...Object.entries(extraFiles).map(([path,content])=>({path,content}))] };
+      const textFiles = Object.entries(extraFiles).map(([path,content])=>({path,content}));
+      if (mainFileExists) textFiles.unshift({path:"main.tex",content:source});
+      const snapshot = { name, files: textFiles };
       saveQueueRef.current = saveQueueRef.current.catch(() => undefined).then(async () => {
         try {
           const [renameResponse, filesResponse] = await Promise.all([
@@ -102,7 +108,7 @@ export default function ProjectEditor() {
       });
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [source, name, extraFiles, id, hydrated]);
+  }, [source, mainFileExists, name, extraFiles, id, hydrated]);
 
   async function importProjectFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList);
@@ -134,7 +140,7 @@ export default function ProjectEditor() {
         } catch (error) { setNotice(error instanceof Error ? error.message : "Could not upload " + path); }
       } else {
         const text = await file.text();
-        if (path === entryTexPath) setSource(text);
+        if (path === entryTexPath) { setSource(text); setMainFileExists(true); }
         else setExtraFiles(current => ({...current,[path]:text}));
         imported++;
       }
@@ -168,7 +174,7 @@ export default function ProjectEditor() {
     const end = editor?.selectionEnd ?? start;
     const next = activeContent.slice(0, start) + text + activeContent.slice(end);
     pendingCursorRef.current = start + text.length;
-    if (activeFile === "main.tex") setSource(next);
+    if (activeFile === "main.tex") { setSource(next); setMainFileExists(true); }
     else setExtraFiles(current => ({ ...current, [activeFile]: next }));
     setSaved(false);
     setNotice("Citation inserted into " + activeFile);
@@ -296,7 +302,7 @@ export default function ProjectEditor() {
     }
     const section = "\\n\\n\\section{New Section}\\nWrite your content here.\\n";
     const next = activeContent + section;
-    if (activeFile === "main.tex") setSource(next);
+    if (activeFile === "main.tex") { setSource(next); setMainFileExists(true); }
     else setExtraFiles(current => ({ ...current, [activeFile]: next }));
     setNotice("Section inserted into " + activeFile);
     window.setTimeout(() => setNotice(""), 2500);
@@ -357,10 +363,10 @@ export default function ProjectEditor() {
               spellCheck={false}
               value={activeContent}
               readOnly={isBinaryAsset}
-              onChange={e=>{if(isBinaryAsset)return;if(activeFile==="main.tex")setSource(e.target.value);else setExtraFiles(current=>({...current,[activeFile]:e.target.value}));setSaved(false);}}
+              onChange={e=>{if(isBinaryAsset)return;if(activeFile==="main.tex"){setSource(e.target.value);setMainFileExists(true);}else setExtraFiles(current=>({...current,[activeFile]:e.target.value}));setSaved(false);}}
               aria-label="LaTeX source editor"
               onKeyDown={e=>{
-                if(e.key==="Tab"){e.preventDefault();const t=e.currentTarget;const start=t.selectionStart;const end=t.selectionEnd;const value=t.value;const next=value.slice(0,start)+"  "+value.slice(end);if(activeFile==="main.tex")setSource(next);else setExtraFiles(current=>({...current,[activeFile]:next}));requestAnimationFrame(()=>{t.selectionStart=t.selectionEnd=start+2;});}
+                if(e.key==="Tab"){e.preventDefault();const t=e.currentTarget;const start=t.selectionStart;const end=t.selectionEnd;const value=t.value;const next=value.slice(0,start)+"  "+value.slice(end);if(activeFile==="main.tex"){setSource(next);setMainFileExists(true);}else setExtraFiles(current=>({...current,[activeFile]:next}));requestAnimationFrame(()=>{t.selectionStart=t.selectionEnd=start+2;});}
               }}
             />
           </div>
