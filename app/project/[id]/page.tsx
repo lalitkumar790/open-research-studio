@@ -141,8 +141,18 @@ export default function ProjectEditor() {
 
   async function compileDocument() {
     const compileStartedAt = Date.now();
-    const inputBytes = new Blob([source, ...Object.values(extraFiles)]).size;
-    track("compile_started", { input_bytes: inputBytes, supporting_files: Object.keys(extraFiles).length });
+    const entryFile = activeFile.toLowerCase().endsWith(".tex") ? activeFile : "main.tex";
+    const entrySource = entryFile === "main.tex" ? source : extraFiles[entryFile];
+    if (typeof entrySource !== "string" || !entrySource.trim()) {
+      setCompileError("The selected .tex file is empty or unavailable.");
+      return;
+    }
+    const supportingFiles = entryFile === "main.tex"
+      ? { ...extraFiles }
+      : { ...extraFiles, "main.tex": source };
+    delete supportingFiles[entryFile];
+    const inputBytes = new Blob([entrySource, ...Object.values(supportingFiles)]).size;
+    track("compile_started", { input_bytes: inputBytes, supporting_files: Object.keys(supportingFiles).length, entry_file: entryFile });
     setCompiling(true);
     setCompileError("");
     setCompileLogs("");
@@ -151,7 +161,7 @@ export default function ProjectEditor() {
       const response = await fetch("/api/compile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source, files: extraFiles })
+        body: JSON.stringify({ source: entrySource, files: supportingFiles, entryFile })
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({ error: "Compilation failed." }));
@@ -161,7 +171,7 @@ export default function ProjectEditor() {
         return;
       }
       const pdf = await response.blob();
-      track("compile_succeeded", { duration_ms: Date.now() - compileStartedAt, input_bytes: inputBytes, output_bytes: pdf.size });
+      track("compile_succeeded", { duration_ms: Date.now() - compileStartedAt, input_bytes: inputBytes, output_bytes: pdf.size, entry_file: entryFile });
       const nextUrl = URL.createObjectURL(pdf);
       setPdfUrl(current => {
         if (current) URL.revokeObjectURL(current);
