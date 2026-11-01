@@ -302,7 +302,7 @@ export default function ProjectEditor() {
                 <div className="pdf-line"/><div className="pdf-line medium"/>
                 <div className="pdf-placeholder-watermark"><FileText size={18}/> PDF preview will appear here</div>
               </div>
-              <div className="preview-empty-copy"><strong>Your PDF preview</strong><span>Compile your LaTeX source to generate a real PDF using Tectonic.</span><button className="compile-button" onClick={compileDocument} disabled={compiling}><Play size={14} fill="currentColor"/> {compiling ? "Compiling…" : "Compile document"}</button></div>
+              <div className="preview-empty-copy"><strong>Your PDF preview</strong><span>Compile your LaTeX source to generate a real PDF using Tectonic.</span><button className="compile-button" onClick={compileDocument} disabled={compiling || !activeFile.toLowerCase().endsWith(".tex")}><Play size={14} fill="currentColor"/> {compiling ? "Compiling…" : "Compile document"}</button></div>
             </div>}
             {compileError && <div className="compile-error"><div><AlertCircle size={15}/><strong>{compileError}</strong></div>{compileLogs && <pre>{compileLogs}</pre>}</div>}
           </div>
