@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { track } from "@vercel/analytics";
 import {
   Settings, PanelLeft, Search, ListFilter, Grid3X3, Plus, ChevronDown,
   ChevronUp, MoreHorizontal, FileText, FolderPlus, Upload, FilePlus2,
@@ -74,6 +75,7 @@ export default function Home() {
     const id = Date.now();
     const projectName = example ? "Research Paper — Example" : "Untitled Project";
     const p = { id, name: projectName, created: "now", kind: "document" as const };
+    track("project_created", { template: example ? "example" : "blank" });
     const nextProjects = [p, ...projects];
     setProjects(nextProjects);
     try { localStorage.setItem("ors-dashboard-projects-v1", JSON.stringify(nextProjects)); } catch {}
