@@ -24,7 +24,7 @@ DIRECT_URL="postgresql://.../neondb?sslmode=require"
 
 The initial schema is in [schema.sql](./schema.sql). It defines:
 
-- Users and Auth.js-compatible account/session records.
+- User profile mapping to Neon Managed Better Auth (`neon_auth.user`) plus legacy-compatible account/session tables (not used for sign-in).
 - Projects and project membership roles.
 - Project files, with text content in PostgreSQL and object-storage keys for binary assets.
 - Parsed BibTeX references.
@@ -35,6 +35,10 @@ Apply the schema to a new empty Neon database using the Neon SQL Editor, or with
 ```bash
 psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -f database/schema.sql
 ```
+
+## Neon Managed Better Auth
+
+Neon Managed Better Auth is provisioned on the `production` branch. Its service URL is configured as `NEON_AUTH_BASE_URL` in the app environment. The canonical production origin `https://open-research-studio.vercel.app` is registered as a trusted origin; localhost is allowed for development. Authentication records live in Neon's `neon_auth` schema. The ORS `users.neon_auth_user_id` column maps application profiles to Neon Auth user UUIDs. Do not create a second authentication/session system in ORS.
 
 ## Important safety and rollout notes
 
