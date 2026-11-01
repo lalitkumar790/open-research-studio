@@ -15,7 +15,7 @@ The first milestone recreates the signed-in project dashboard shown in the suppl
 - Rename and delete project actions
 - Responsive layout for smaller screens
 
-The dashboard currently uses local in-browser state and sample project rows. Authentication, persistent storage, real import/parsing, live LaTeX compilation, PDF rendering, AI assistance, citations, and collaboration are planned follow-on milestones and are not yet implemented.
+The dashboard uses sample project rows and browser state. The editor currently supports editing a starter LaTeX document, browser-local autosave, rich-text placeholder preview, and source export. Authentication, server-side persistent storage, real import/parsing, live LaTeX compilation and PDF rendering, AI-provider integration, citations, and collaboration are not yet implemented.
 
 ## Tech stack
 
@@ -36,13 +36,13 @@ Open http://localhost:3000.
 
 ## Roadmap
 
-1. Workspace UI and project navigation
-2. Durable user accounts, project storage, and file uploads
-3. Multi-file LaTeX editor with autosave
-4. TeX compilation service and PDF preview
-5. AI writing and LaTeX debugging assistant
-6. Bibliography, citation, and figure management
-7. Sharing, permissions, and export
+1. Workspace UI and project navigation — implemented
+2. Single-file LaTeX editor with browser-local autosave — initial UI implemented
+3. Three-pane workspace with file tree, source editor, PDF preview area, and AI assistant panel — initial UI implemented
+4. Durable user accounts, project storage, and multi-file uploads
+5. TeX compilation service and real PDF preview
+6. AI writing and LaTeX debugging assistant backed by a configured provider
+7. Bibliography, citation, figure management, sharing, permissions, and export
 
 ## Note
 
