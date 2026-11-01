@@ -99,6 +99,9 @@ export default function ProjectEditor() {
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const queryName = params.get("name");
+    if (queryName) setName(queryName);
     try {
       const stored = localStorage.getItem(storageKey);
       if (stored) {
@@ -106,8 +109,13 @@ export default function ProjectEditor() {
         if (typeof data.source === "string") setSource(data.source);
         if (typeof data.name === "string") setName(data.name);
         if (data.extraFiles && typeof data.extraFiles === "object" && !Array.isArray(data.extraFiles)) setExtraFiles(data.extraFiles);
+      } else if (params.get("template") === "example") {
+        setSource(exampleTemplate);
+        setExtraFiles({ "references.bib": exampleReferences });
       }
-    } catch {}
+    } catch {
+      setNotice("This project could not be fully restored from browser storage.");
+    }
     setHydrated(true);
   }, [storageKey]);
 
@@ -121,16 +129,6 @@ export default function ProjectEditor() {
     }, 500);
     return () => window.clearTimeout(timer);
   }, [source, name, extraFiles, storageKey, hydrated]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    const params = new URLSearchParams(window.location.search);
-    if (localStorage.getItem(storageKey)) return;
-    if (params.get("template") === "example") {
-      setSource(exampleTemplate);
-      setExtraFiles({ "references.bib": exampleReferences });
-    }
-  }, [hydrated, storageKey]);
 
   const activeContent = activeFile === "main.tex" ? source : (extraFiles[activeFile] ?? "");
 
