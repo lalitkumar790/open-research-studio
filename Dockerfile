@@ -3,7 +3,7 @@
 # Run:   docker run --rm -p 3000:3000 open-research-studio
 FROM node:20-bookworm-slim AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY package.json ./
 RUN npm install
 
 FROM node:20-bookworm-slim AS builder
