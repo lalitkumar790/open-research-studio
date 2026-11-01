@@ -55,6 +55,87 @@ Summarize the contributions and outline future work.
 \end{document}
 `;
 
+
+const exampleTemplate = String.raw\`\\documentclass[11pt,a4paper]{article}
+\\usepackage[margin=1in]{geometry}
+\\usepackage{amsmath,amssymb,booktabs,graphicx}
+\\usepackage[numbers]{natbib}
+\\usepackage[hidelinks]{hyperref}
+
+\\title{An Example Research Paper}
+\\author{Author Name\\\\Department / Institution}
+\\date{\\\\today}
+
+\\begin{document}
+\\maketitle
+
+\\begin{abstract}
+This example demonstrates a clean starting structure for a research manuscript.
+Replace this paragraph with the research problem, approach, principal results,
+and the contribution of your work. Keep claims precise and evidence-based.
+\\end{abstract}
+
+\\noindent\\textbf{Keywords:} research methodology; reproducibility; scientific writing
+
+\\section{Introduction}
+Introduce the problem, explain its significance, and identify the gap this work
+addresses. End the section with a concise statement of the paper's contributions.
+
+\\section{Related Work}
+Organise prior work by theme rather than listing papers one by one. Explain how
+the present study differs from and builds upon the literature.
+
+\\section{Methodology}
+Describe the system, dataset, experimental setup, and evaluation protocol so
+another researcher can reproduce the work.
+
+\\subsection{Mathematical formulation}
+For example, a simple least-squares objective can be written as
+\\begin{equation}
+  \\hat{\\boldsymbol{\\theta}} =
+  \\arg\\min_{\\boldsymbol{\\theta}}
+  \\sum_{i=1}^{N}\\left(y_i-f(x_i;\\boldsymbol{\\theta})\\right)^2.
+\\end{equation}
+
+\\section{Results and Discussion}
+Report measured results with appropriate units, baselines, and uncertainty.
+Do not invent results: replace this guidance with your actual observations.
+
+\\begin{table}[ht]
+\\centering
+\\caption{Example results table (replace with measured data).}
+\\begin{tabular}{lcc}
+\\toprule
+Method & Metric A & Metric B \\\\
+\\midrule
+Baseline & -- & -- \\\\
+Proposed method & -- & -- \\\\
+\\bottomrule
+\\end{tabular}
+\\end{table}
+
+\\section{Conclusion}
+Summarise the verified contributions, limitations, and concrete future work.
+
+\\section*{Acknowledgements}
+Add funding and contributor acknowledgements where applicable.
+
+\\bibliographystyle{plainnat}
+\\bibliography{references}
+\\end{document}
+\`;
+
+const exampleReferences = \`@article{example2024,
+  author  = {Author, A. and Researcher, B.},
+  title   = {Replace this placeholder with a verified reference},
+  journal = {Journal Name},
+  year    = {2024},
+  volume  = {1},
+  number  = {1},
+  pages   = {1--10}
+}
+\`;
+
 const outline = [
   { title: "Abstract", line: 15 },
   { title: "1  Introduction", line: 20 },
@@ -69,6 +150,7 @@ export default function ProjectEditor() {
   const id = String(params.id ?? "project");
   const [name, setName] = useState("New Project");
   const [source, setSource] = useState(starter);
+  const [hydrated, setHydrated] = useState(false);
   const [extraFiles, setExtraFiles] = useState<Record<string, string>>({ "references.bib": "% Add BibTeX entries here.\n" });
   const [tab, setTab] = useState<"preview" | "source">("preview");
   const [showFiles, setShowFiles] = useState(true);
@@ -88,7 +170,8 @@ export default function ProjectEditor() {
   const storageKey = useMemo(() => "ors-project-" + id, [id]);
 
   useEffect(() => {
-    const queryName = new URLSearchParams(window.location.search).get("name");
+    const params = new URLSearchParams(window.location.search);
+    const queryName = params.get("name");
     if (queryName) setName(queryName);
   }, []);
 
@@ -102,9 +185,11 @@ export default function ProjectEditor() {
         if (data.extraFiles && typeof data.extraFiles === "object" && !Array.isArray(data.extraFiles)) setExtraFiles(data.extraFiles);
       }
     } catch {}
+    setHydrated(true);
   }, [storageKey]);
 
   useEffect(() => {
+    if (!hydrated) return;
     const timer = window.setTimeout(() => {
       try {
         localStorage.setItem(storageKey, JSON.stringify({ source, name, extraFiles }));
@@ -112,9 +197,28 @@ export default function ProjectEditor() {
       } catch { setSaved(false); }
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [source, name, extraFiles, storageKey]);
+  }, [source, name, extraFiles, storageKey, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const params = new URLSearchParams(window.location.search);
+    if (localStorage.getItem(storageKey)) return;
+    if (params.get("template") === "example") {
+      setSource(exampleTemplate);
+      setExtraFiles({ "references.bib": exampleReferences });
+    }
+  }, [hydrated, storageKey]);
 
   const activeContent = activeFile === "main.tex" ? source : (extraFiles[activeFile] ?? "");
+
+  function downloadProject() {
+    const bundle = { format: "open-research-studio-project", version: 1, exportedAt: new Date().toISOString(), name, source, extraFiles };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name.trim().replace(/[^a-z0-9-_]+/gi, "-") + ".ors.json"; a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 
   function downloadSource() {
     const blob = new Blob([activeContent], { type: activeFile.endsWith(".bib") ? "text/plain;charset=utf-8" : "application/x-tex;charset=utf-8" });
@@ -180,7 +284,7 @@ export default function ProjectEditor() {
       <header className="editor-topbar">
         <div className="editor-brand">
           <a href="/" className="back-home" aria-label="Back to projects"><ArrowLeft size={18}/></a>
-          <span className="brand-mark"><BookOpen size={17}/></span>
+          <a href="/" className="brand-mark" aria-label="Open Research Studio home" title="Open Research Studio home"><BookOpen size={17}/></a>
           <div className="project-heading">
             <input value={name} onChange={e=>setName(e.target.value)} aria-label="Project name"/>
             <span className="crumb">Personal workspace <span>·</span> {saved ? "All changes saved" : "Saving…"}</span>
@@ -189,7 +293,8 @@ export default function ProjectEditor() {
         </div>
         <div className="editor-actions">
           <span className="save-state"><span className="save-dot"/> {saved ? "Saved" : "Saving"}</span>
-          <button className="editor-ghost" onClick={downloadSource}><Download size={16}/> Export</button>
+          <button className="editor-ghost" onClick={downloadSource}><Download size={16}/> Export file</button>
+          <button className="editor-ghost" onClick={downloadProject}><Download size={16}/> Export project</button>
           <button className="editor-ghost" onClick={()=>setNotice("Sharing will be available after accounts and permissions are configured.")}><Share2 size={16}/> Share</button>
           <button className="compile-button" onClick={compileDocument} disabled={compiling}><Play size={15} fill="currentColor"/> {compiling ? "Compiling…" : "Compile"}</button>
           <button className="editor-icon" aria-label="More options"><MoreHorizontal size={19}/></button>
@@ -226,7 +331,7 @@ export default function ProjectEditor() {
               onChange={e=>{if(activeFile==="main.tex")setSource(e.target.value);else setExtraFiles(current=>({...current,[activeFile]:e.target.value}));setSaved(false);}}
               aria-label="LaTeX source editor"
               onKeyDown={e=>{
-                if(e.key==="Tab"){e.preventDefault();const t=e.currentTarget;const start=t.selectionStart;const end=t.selectionEnd;const value=t.value;t.value=value.slice(0,start)+"  "+value.slice(end);t.selectionStart=t.selectionEnd=start+2;setSource(t.value);}
+                if(e.key==="Tab"){e.preventDefault();const t=e.currentTarget;const start=t.selectionStart;const end=t.selectionEnd;const value=t.value;const next=value.slice(0,start)+"  "+value.slice(end);if(activeFile==="main.tex")setSource(next);else setExtraFiles(current=>({...current,[activeFile]:next}));requestAnimationFrame(()=>{t.selectionStart=t.selectionEnd=start+2;});}
               }}
             />
           </div>
