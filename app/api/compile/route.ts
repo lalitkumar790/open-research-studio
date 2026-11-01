@@ -232,7 +232,7 @@ export async function POST(request: NextRequest) {
     try {
       pdfStat = await stat(pdfPath);
     } catch {
-      return NextResponse.json({ error: "Tectonic finished but did not produce ${outputName}.", logs: result.stderr }, { status: 500 });
+      return NextResponse.json({ error: `Tectonic finished but did not produce ${outputName}.`, logs: result.stderr }, { status: 500 });
     }
     if (pdfStat.size > MAX_PDF_BYTES) return NextResponse.json({ error: "The generated PDF exceeds the 12 MB response limit." }, { status: 413 });
 
