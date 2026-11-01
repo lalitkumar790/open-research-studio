@@ -76,7 +76,6 @@ export default function ProjectEditor() {
   const [source, setSource] = useState(starter);
   const [hydrated, setHydrated] = useState(false);
   const [extraFiles, setExtraFiles] = useState<Record<string, string>>({ "references.bib": "% Add BibTeX entries here.\n" });
-  const [tab, setTab] = useState<"preview" | "source">("preview");
   const [showFiles, setShowFiles] = useState(true);
   const [showAssistant, setShowAssistant] = useState(true);
   const [assistantText, setAssistantText] = useState("");
@@ -182,7 +181,6 @@ export default function ProjectEditor() {
         if (current) URL.revokeObjectURL(current);
         return nextUrl;
       });
-      setTab("preview");
     } catch (error) {
       track("compile_failed", { duration_ms: Date.now() - compileStartedAt, status: "network" });
       setCompileError(error instanceof Error ? error.message : "Could not reach the compiler.");
@@ -267,12 +265,16 @@ export default function ProjectEditor() {
         </section>
 
         <section className="preview-pane">
-          <div className="preview-toolbar">
-            <div className="preview-tabs"><button className={tab==="preview"?"active":""} onClick={()=>setTab("preview")}>PDF preview</button><button className={tab==="source"?"active":""} onClick={()=>setTab("source")}>Rich preview</button></div>
-            <div className="preview-tools"><span className="compile-status"><span className={pdfUrl ? "compiled" : ""}/> {compiling ? "Compiling…" : pdfUrl ? "PDF ready" : "Not compiled"}</span><button title={pdfUrl ? "Download PDF" : "Download LaTeX source"} onClick={() => { if (pdfUrl) { const a = document.createElement("a"); a.href = pdfUrl; a.download = name.trim().replace(/[^a-z0-9-_]+/gi, "-") + ".pdf"; a.click(); } else downloadSource(); }}><Download size={15}/></button><button title="Fullscreen"><Maximize2 size={15}/></button></div>
+          <div className="preview-toolbar preview-toolbar-simple">
+            <span className="preview-heading">PDF</span>
+            <div className="preview-tools">
+              <span className="compile-status"><span className={pdfUrl ? "compiled" : ""}/> {compiling ? "Compiling…" : pdfUrl ? "Ready" : "Not compiled"}</span>
+              <button className="pdf-download-button" disabled={!pdfUrl} title="Download PDF" onClick={() => { if (!pdfUrl) return; const a = document.createElement("a"); a.href = pdfUrl; a.download = name.trim().replace(/[^a-z0-9-_]+/gi, "-") + ".pdf"; a.click(); }}><Download size={14}/> Download PDF</button>
+            </div>
           </div>
+          <div className="pdf-viewer">
           {tab === "preview" ? <div className="pdf-viewer">
-            {pdfUrl ? <iframe className="pdf-frame" src={pdfUrl} title="Compiled PDF preview"/> : <div className="pdf-empty">
+            {pdfUrl ? <iframe className="pdf-frame" src={pdfUrl + "#toolbar=0&navpanes=0&scrollbar=1&view=FitH"} title="Compiled PDF preview"/> : <div className="pdf-empty">
               <div className="pdf-page-placeholder">
                 <div className="pdf-paper-top"><span>OPEN RESEARCH STUDIO</span><span>PREVIEW</span></div>
                 <div className="pdf-title-line"/><div className="pdf-title-line short"/>
@@ -288,7 +290,7 @@ export default function ProjectEditor() {
               <div className="preview-empty-copy"><strong>Your PDF preview</strong><span>Compile your LaTeX source to generate a real PDF using Tectonic.</span><button className="compile-button" onClick={compileDocument} disabled={compiling}><Play size={14} fill="currentColor"/> {compiling ? "Compiling…" : "Compile document"}</button></div>
             </div>}
             {compileError && <div className="compile-error"><div><AlertCircle size={15}/><strong>{compileError}</strong></div>{compileLogs && <pre>{compileLogs}</pre>}</div>}
-          </div> : <div className="rich-preview"><h1>Research Project</h1><p className="rich-author">Author Name</p><h3>Abstract</h3><p>Write your abstract here. Summarize the research problem, methodology, key findings, and contribution of this work.</p><h2>1. Introduction</h2><p>Introduce the research problem and explain why it matters. Describe the context, motivation, and the specific gap this work addresses.</p><h2>2. Related Work</h2><p>Review relevant literature and position your contribution.</p><h2>3. Methodology</h2><p>Describe the proposed approach in enough detail for reproducibility.</p><div className="math-block">E = mc²</div><h2>4. Results and Discussion</h2><p>Present your findings and discuss their implications.</p><h2>5. Conclusion</h2><p>Summarize the contributions and outline future work.</p></div>}
+          </div>
         </section>
 
         {showAssistant && <aside className="assistant-pane">
