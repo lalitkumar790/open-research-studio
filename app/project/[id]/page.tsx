@@ -130,7 +130,8 @@ export default function ProjectEditor() {
     return () => window.clearTimeout(timer);
   }, [source, name, extraFiles, storageKey, hydrated]);
 
-  const activeContent = activeFile === "main.tex" ? source : (extraFiles[activeFile] ?? "");
+  const isBinaryAsset = /\.(png|jpe?g|pdf)$/i.test(activeFile);
+  const activeContent = activeFile === "main.tex" ? source : (isBinaryAsset ? "[Binary project asset — included when compiling]" : (extraFiles[activeFile] ?? ""));
 
   function downloadProject() {
     const bundle = { format: "open-research-studio-project", version: 1, exportedAt: new Date().toISOString(), name, source, extraFiles };
@@ -234,7 +235,7 @@ export default function ProjectEditor() {
             <div className="tree-folder"><ChevronDown size={14}/><FolderOpen size={16}/> <span>{name}</span></div>
             <button className={`tree-file ${activeFile==="main.tex"?"active":""}`} onClick={()=>setActiveFile("main.tex")}><FileText size={15}/> main.tex</button>
             {Object.keys(extraFiles).sort().map(file=><button key={file} className={`tree-file ${activeFile===file?"active":""}`} onClick={()=>setActiveFile(file)}><FileText size={15}/> {file}</button>)}
-            <label className="tree-file"><Plus size={15}/> Import files<input type="file" accept=".tex,.bib,.txt,.sty,.cls" multiple hidden onChange={e=>{Array.from(e.target.files??[]).forEach(file=>{if(file.size>200*1024){setNotice(file.name+" exceeds 200 KB.");return;}if(!/\.(tex|bib|txt|sty|cls)$/i.test(file.name)){setNotice("Unsupported file: "+file.name);return;}const reader=new FileReader();reader.onload=()=>{setExtraFiles(current=>({...current,[file.name]:String(reader.result??"")}));track("files_imported",{count:1,bytes:file.size,format:file.name.split(".").pop()||"text"});};reader.readAsText(file);});e.currentTarget.value="";}}/></label>
+            <label className="tree-file"><Plus size={15}/> Import files<input type="file" accept=".tex,.bib,.txt,.sty,.cls,.png,.jpg,.jpeg,.pdf" multiple hidden onChange={e=>{Array.from(e.target.files??[]).forEach(file=>{if(file.size>2*1024*1024){setNotice(file.name+" exceeds 2 MB.");return;}if(!/\.(tex|bib|txt|sty|cls|png|jpe?g|pdf)$/i.test(file.name)){setNotice("Unsupported file: "+file.name);return;}const binary=/\.(png|jpe?g|pdf)$/i.test(file.name);const reader=new FileReader();reader.onload=()=>{setExtraFiles(current=>({...current,[file.name]:String(reader.result??"")}));track("files_imported",{count:1,bytes:file.size,format:file.name.split(".").pop()||"text"});};if(binary)reader.readAsDataURL(file);else reader.readAsText(file);});e.currentTarget.value="";}}/></label>
           </div>
           <div className="file-sidebar-bottom"><Settings size={15}/> Project settings</div>
         </aside>}
@@ -254,7 +255,8 @@ export default function ProjectEditor() {
               className="latex-editor"
               spellCheck={false}
               value={activeContent}
-              onChange={e=>{if(activeFile==="main.tex")setSource(e.target.value);else setExtraFiles(current=>({...current,[activeFile]:e.target.value}));setSaved(false);}}
+              readOnly={isBinaryAsset}
+              onChange={e=>{if(isBinaryAsset)return;if(activeFile==="main.tex")setSource(e.target.value);else setExtraFiles(current=>({...current,[activeFile]:e.target.value}));setSaved(false);}}
               aria-label="LaTeX source editor"
               onKeyDown={e=>{
                 if(e.key==="Tab"){e.preventDefault();const t=e.currentTarget;const start=t.selectionStart;const end=t.selectionEnd;const value=t.value;const next=value.slice(0,start)+"  "+value.slice(end);if(activeFile==="main.tex")setSource(next);else setExtraFiles(current=>({...current,[activeFile]:next}));requestAnimationFrame(()=>{t.selectionStart=t.selectionEnd=start+2;});}
