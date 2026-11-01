@@ -97,7 +97,7 @@ export default function ProjectEditor() {
         try {
           const [renameResponse, filesResponse] = await Promise.all([
             authenticatedFetch(`/api/projects/${id}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({name:snapshot.name}) }),
-            authenticatedFetch(`/api/projects/${id}/files`, { method: "PUT", headers: {"Content-Type":"application/json"}, body: JSON.stringify({files:snapshot.files}) })
+            authenticatedFetch(`/api/projects/${id}/files`, { method: "PUT", headers: {"Content-Type":"application/json"}, body: JSON.stringify({files:snapshot.files,replaceTextFiles:true}) })
           ]);
           if (!renameResponse.ok || !filesResponse.ok) throw new Error("Cloud save failed. Check your connection and sign-in.");
           setSaved(true);
