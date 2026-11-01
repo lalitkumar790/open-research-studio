@@ -8,19 +8,55 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const MAX_SOURCE_BYTES = 200 * 1024;
+const MAX_REQUEST_BYTES = 260 * 1024;
 const MAX_PDF_BYTES = 12 * 1024 * 1024;
 const COMPILE_TIMEOUT_MS = 35_000;
+const MAX_CONCURRENT_COMPILES = 2;
+let activeCompiles = 0;
+
+type CompilePayload = { source?: unknown; files?: unknown };
+
+function validatePayload(payload: unknown) {
+  const body = payload as CompilePayload | null;
+  const source = body?.source;
+  const files = body?.files && typeof body.files === "object" && !Array.isArray(body.files)
+    ? body.files as Record<string, unknown>
+    : {};
+  if (typeof source !== "string" || !source.trim()) {
+    return { error: "Provide non-empty LaTeX source in the 'source' field.", status: 400 as const };
+  }
+  const entries = Object.entries(files);
+  if (entries.length > 20) return { error: "A project can include at most 20 supporting files.", status: 413 as const };
+  let totalBytes = Buffer.byteLength(source, "utf8");
+  for (const [name, value] of entries) {
+    if (!/^[a-zA-Z0-9_-]+\.(tex|bib|txt|sty|cls)$/.test(name) || typeof value !== "string") {
+      return { error: "Supporting files must have safe base names and .tex, .bib, .txt, .sty or .cls extensions.", status: 400 as const };
+    }
+    totalBytes += Buffer.byteLength(value, "utf8");
+  }
+  if (totalBytes > MAX_SOURCE_BYTES) return { error: "The total project source limit is 200 KB.", status: 413 as const };
+  return { source, files: files as Record<string, string>, totalBytes };
+}
+
+async function readPayload(request: NextRequest) {
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > MAX_REQUEST_BYTES) {
+    return { error: "The request exceeds the 260 KB upload limit.", status: 413 as const };
+  }
+  try {
+    const payload = await request.json();
+    return validatePayload(payload);
+  } catch {
+    return { error: "Request body must be valid JSON.", status: 400 as const };
+  }
+}
 
 function runTectonic(cwd: string, outputDir: string) {
   return new Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }>((resolve, reject) => {
     const binary = process.env.TECTONIC_BIN || "tectonic";
     const child = spawn(binary, [
-      "-X", "compile",
-      "--outdir", outputDir,
-      "--keep-logs",
-      "--keep-intermediates",
-      "--untrusted",
-      "main.tex"
+      "-X", "compile", "--outdir", outputDir, "--keep-logs",
+      "--keep-intermediates", "--untrusted", "main.tex"
     ], {
       cwd,
       env: { ...process.env, HOME: "/tmp", XDG_CACHE_HOME: "/tmp/ors-tectonic-cache", TECTONIC_UNTRUSTED_MODE: "1" },
@@ -56,45 +92,81 @@ function runTectonic(cwd: string, outputDir: string) {
 }
 
 export async function POST(request: NextRequest) {
+  const parsed = await readPayload(request);
+  if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+
+  // Vercel is the public edge. It forwards only validated source to the private compiler.
   if (process.env.VERCEL) {
-    return NextResponse.json({
-      error: "Online PDF compilation is not enabled on this Vercel deployment yet.",
-      details: "The compiler currently requires the Tectonic executable. Use the Docker deployment for compilation, or wait for the hosted compiler service integration."
-    }, { status: 501 });
-  }
-
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
-  }
-
-  const body = payload as { source?: unknown; files?: unknown } | null;
-  const source = body?.source;
-  const files = body?.files && typeof body.files === "object" && !Array.isArray(body.files) ? body.files as Record<string, unknown> : {};
-  if (typeof source !== "string" || !source.trim()) {
-    return NextResponse.json({ error: "Provide non-empty LaTeX source in the 'source' field." }, { status: 400 });
-  }
-  const entries = Object.entries(files);
-  if (entries.length > 20) return NextResponse.json({ error: "A project can include at most 20 supporting files." }, { status: 413 });
-  let totalBytes = Buffer.byteLength(source, "utf8");
-  for (const [name, content] of entries) {
-    if (!/^[a-zA-Z0-9_-]+\.(tex|bib|txt|sty|cls)$/.test(name) || typeof content !== "string") {
-      return NextResponse.json({ error: "Supporting files must have safe names and .tex, .bib, .txt, .sty or .cls extensions." }, { status: 400 });
+    const compilerUrl = process.env.ORS_COMPILER_URL;
+    const token = process.env.ORS_COMPILER_TOKEN;
+    if (!compilerUrl || !token) {
+      return NextResponse.json({
+        error: "Cloud compilation is not configured yet.",
+        details: "The editor is available, but the Oracle compiler service must be connected by the workspace owner."
+      }, { status: 503 });
     }
-    totalBytes += Buffer.byteLength(content, "utf8");
+    let target: URL;
+    try {
+      target = new URL(compilerUrl);
+      if (target.protocol !== "https:") throw new Error("HTTPS required");
+    } catch {
+      return NextResponse.json({ error: "Compiler service configuration is invalid." }, { status: 503 });
+    }
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 45_000);
+      const response = await fetch(target, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ source: parsed.source, files: parsed.files }),
+        cache: "no-store",
+        signal: controller.signal
+      }).finally(() => clearTimeout(timer));
+      const bytes = await response.arrayBuffer();
+      if (!response.ok) {
+        let error = "The compiler service rejected this job.";
+        let details = "";
+        try {
+          const data = JSON.parse(new TextDecoder().decode(bytes));
+          error = typeof data.error === "string" ? data.error : error;
+          details = typeof data.logs === "string" ? data.logs : typeof data.details === "string" ? data.details : "";
+        } catch {}
+        return NextResponse.json({ error, details }, { status: response.status });
+      }
+      if (bytes.byteLength > MAX_PDF_BYTES || !response.headers.get("content-type")?.includes("application/pdf")) {
+        return NextResponse.json({ error: "Compiler returned an invalid or oversized PDF." }, { status: 502 });
+      }
+      return new Response(bytes, {
+        status: 200,
+        headers: { "Content-Type": "application/pdf", "Content-Disposition": 'inline; filename="research-paper.pdf"', "Cache-Control": "no-store" }
+      });
+    } catch {
+      return NextResponse.json({ error: "The cloud compiler could not be reached. Please retry shortly." }, { status: 503 });
+    }
   }
-  if (totalBytes > MAX_SOURCE_BYTES) return NextResponse.json({ error: "The total project source limit is 200 KB." }, { status: 413 });
 
-  // A per-request temporary workspace prevents concurrent builds from sharing files.
+  // A production self-hosted compiler must never be exposed without its shared secret.
+  const configuredToken = process.env.ORS_COMPILER_TOKEN;
+  if (process.env.NODE_ENV === "production" && !configuredToken) {
+    return NextResponse.json({ error: "Compiler authentication is not configured." }, { status: 503 });
+  }
+  if (configuredToken && request.headers.get("authorization") !== `Bearer ${configuredToken}`) {
+    return NextResponse.json({ error: "Unauthorized compiler request." }, { status: 401 });
+  }
+  if (activeCompiles >= MAX_CONCURRENT_COMPILES) {
+    return NextResponse.json({ error: "The compiler is busy. Please retry in a moment." }, { status: 429, headers: { "Retry-After": "10" } });
+  }
+
+  activeCompiles += 1;
   const workspace = await mkdtemp(path.join(os.tmpdir(), "ors-tex-"));
   const outputDir = path.join(workspace, "output");
   try {
     await mkdir(outputDir, { recursive: true });
     await mkdir("/tmp/ors-tectonic-cache", { recursive: true });
-    await writeFile(path.join(workspace, "main.tex"), source, { encoding: "utf8", flag: "wx" });
-    for (const [name, content] of entries) await writeFile(path.join(workspace, name), content as string, { encoding: "utf8", flag: "wx" });
+    await writeFile(path.join(workspace, "main.tex"), parsed.source, { encoding: "utf8", flag: "wx" });
+    for (const [name, value] of Object.entries(parsed.files)) {
+      await writeFile(path.join(workspace, name), value, { encoding: "utf8", flag: "wx" });
+    }
 
     let result;
     try {
@@ -102,17 +174,12 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to start Tectonic.";
       if (message.includes("ENOENT")) {
-        return NextResponse.json({
-          error: "Tectonic is not installed on this server.",
-          details: "Install Tectonic or deploy this application using the provided Dockerfile."
-        }, { status: 503 });
+        return NextResponse.json({ error: "Tectonic is not installed on this server." }, { status: 503 });
       }
-      return NextResponse.json({ error: "Could not start the LaTeX compiler.", details: message }, { status: 500 });
+      return NextResponse.json({ error: "Could not start the LaTeX compiler." }, { status: 500 });
     }
 
-    if (result.timedOut) {
-      return NextResponse.json({ error: "Compilation timed out after 35 seconds.", logs: result.stderr }, { status: 408 });
-    }
+    if (result.timedOut) return NextResponse.json({ error: "Compilation timed out after 35 seconds.", logs: result.stderr }, { status: 408 });
     if (result.code !== 0) {
       return NextResponse.json({
         error: "LaTeX compilation failed. Check the compiler output.",
@@ -127,9 +194,7 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: "Tectonic finished but did not produce main.pdf.", logs: result.stderr }, { status: 500 });
     }
-    if (pdfStat.size > MAX_PDF_BYTES) {
-      return NextResponse.json({ error: "The generated PDF exceeds the 12 MB response limit." }, { status: 413 });
-    }
+    if (pdfStat.size > MAX_PDF_BYTES) return NextResponse.json({ error: "The generated PDF exceeds the 12 MB response limit." }, { status: 413 });
 
     const pdf = await readFile(pdfPath);
     return new Response(new Uint8Array(pdf), {
@@ -142,7 +207,7 @@ export async function POST(request: NextRequest) {
       }
     });
   } finally {
-    // Remove sources, generated artifacts, and any downloaded TeX cache after each build.
+    activeCompiles -= 1;
     await rm(workspace, { recursive: true, force: true }).catch(() => undefined);
   }
 }
