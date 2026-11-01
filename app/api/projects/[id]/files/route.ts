@@ -24,20 +24,56 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   if (!sql) return NextResponse.json({ error: "Database is not configured." }, { status: 503 });
   try {
     const body = await request.json();
-    const files = Array.isArray(body.files) ? body.files : [];
+    if (!Array.isArray(body.files)) {
+      return NextResponse.json({ error: "The files field must be an array." }, { status: 400 });
+    }
+    const files = body.files as Array<{ path?: unknown; content?: unknown }>;
     if (files.length > 100) return NextResponse.json({ error: "A project can contain up to 100 text files." }, { status: 400 });
-    let saved = 0;
+
+    // Validate the complete snapshot before writing anything. This prevents a malformed
+    // later entry from leaving the project only partially updated.
+    const validated: Array<{ path: string; content: string; bytes: number }> = [];
+    const seen = new Set<string>();
+    let totalBytes = 0;
     for (const file of files) {
-      const path = String(file.path || "");
-      const content = String(file.content ?? "");
-      if (!/^[a-zA-Z0-9_-][a-zA-Z0-9_./-]{0,239}$/.test(path) || path.split("/").some((s:string)=>!s || s==="." || s===".." || s.startsWith("."))) continue;
-      const bytes = Buffer.byteLength(content, "utf8");
+      if (!file || typeof file !== "object" || typeof file.path !== "string" || typeof file.content !== "string") {
+        return NextResponse.json({ error: "Each file must include a string path and string content." }, { status: 400 });
+      }
+      const path = file.path;
+      if (!/^[a-zA-Z0-9_-][a-zA-Z0-9_./-]{0,239}$/.test(path) || path.split("/").some((part:string)=>!part || part==="." || part===".." || part.startsWith("."))) {
+        return NextResponse.json({ error: "Invalid project file path: " + path }, { status: 400 });
+      }
+      if (seen.has(path)) return NextResponse.json({ error: "Duplicate project file path: " + path }, { status: 400 });
+      seen.add(path);
+      const bytes = Buffer.byteLength(file.content, "utf8");
       if (bytes > 1024 * 1024) return NextResponse.json({ error: path + " exceeds the 1 MB text-file limit." }, { status: 413 });
+      totalBytes += bytes;
+      if (totalBytes > 2.5 * 1024 * 1024) return NextResponse.json({ error: "The total text content exceeds the 2.5 MB project limit." }, { status: 413 });
+      validated.push({ path, content: file.content, bytes });
+    }
+
+    let saved = 0;
+    for (const file of validated) {
       await sql`INSERT INTO project_files (project_id, path, content, byte_size, is_binary)
-        VALUES (${params.id}::uuid, ${path}, ${content}, ${bytes}, FALSE)
+        VALUES (${params.id}::uuid, ${file.path}, ${file.content}, ${file.bytes}, FALSE)
         ON CONFLICT (project_id, path) DO UPDATE SET content=EXCLUDED.content, storage_key=NULL, mime_type=NULL, byte_size=EXCLUDED.byte_size, is_binary=FALSE`;
       saved++;
     }
+
+    // Autosave marks its payload as a complete text-file snapshot. Delete omitted text
+    // files only after every upsert succeeds, and never touch binary assets.
+    if (body.replaceTextFiles === true) {
+      const paths = JSON.stringify(validated.map(file => file.path));
+      await sql`DELETE FROM project_files
+        WHERE project_id=${params.id}::uuid
+          AND is_binary=FALSE
+          AND NOT EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text(${paths}::jsonb) AS desired(path)
+            WHERE desired.path = project_files.path
+          )`;
+    }
+
     await sql`UPDATE projects SET updated_at=NOW() WHERE id=${params.id}::uuid`;
     return NextResponse.json({ saved });
   } catch (error) {
