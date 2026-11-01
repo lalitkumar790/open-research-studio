@@ -19,10 +19,11 @@ function runTectonic(cwd: string, outputDir: string) {
       "--outdir", outputDir,
       "--keep-logs",
       "--keep-intermediates",
+      "--untrusted",
       "main.tex"
     ], {
       cwd,
-      env: { ...process.env, HOME: cwd, XDG_CACHE_HOME: path.join(cwd, ".cache") },
+      env: { ...process.env, HOME: "/tmp", XDG_CACHE_HOME: "/tmp/ors-tectonic-cache", TECTONIC_UNTRUSTED_MODE: "1" },
       stdio: ["ignore", "pipe", "pipe"]
     });
 
@@ -75,6 +76,7 @@ export async function POST(request: NextRequest) {
   const outputDir = path.join(workspace, "output");
   try {
     await mkdir(outputDir, { recursive: true });
+    await mkdir("/tmp/ors-tectonic-cache", { recursive: true });
     await writeFile(path.join(workspace, "main.tex"), source, { encoding: "utf8", flag: "wx" });
 
     let result;
