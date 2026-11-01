@@ -79,6 +79,10 @@ export default function ProjectEditor() {
   const [notice, setNotice] = useState("");
   const [saved, setSaved] = useState(false);
   const [activeFile, setActiveFile] = useState("main.tex");
+  const [compiling, setCompiling] = useState(false);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [compileError, setCompileError] = useState("");
+  const [compileLogs, setCompileLogs] = useState("");
 
   const storageKey = useMemo(() => "ors-project-" + id, [id]);
 
@@ -109,6 +113,41 @@ export default function ProjectEditor() {
     const a = document.createElement("a");
     a.href = url; a.download = activeFile; a.click();
     URL.revokeObjectURL(url);
+  }
+
+  useEffect(() => {
+    return () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); };
+  }, [pdfUrl]);
+
+  async function compileDocument() {
+    setCompiling(true);
+    setCompileError("");
+    setCompileLogs("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/compile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source })
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: "Compilation failed." }));
+        setCompileError(data.error || "Compilation failed.");
+        setCompileLogs(data.logs || data.details || "");
+        return;
+      }
+      const pdf = await response.blob();
+      const nextUrl = URL.createObjectURL(pdf);
+      setPdfUrl(current => {
+        if (current) URL.revokeObjectURL(current);
+        return nextUrl;
+      });
+      setTab("preview");
+    } catch (error) {
+      setCompileError(error instanceof Error ? error.message : "Could not reach the compiler.");
+    } finally {
+      setCompiling(false);
+    }
   }
 
   function askAssistant() {
@@ -143,7 +182,7 @@ export default function ProjectEditor() {
           <span className="save-state"><span className="save-dot"/> {saved ? "Saved" : "Saving"}</span>
           <button className="editor-ghost" onClick={downloadSource}><Download size={16}/> Export</button>
           <button className="editor-ghost" onClick={()=>setNotice("Sharing will be available after accounts and permissions are configured.")}><Share2 size={16}/> Share</button>
-          <button className="compile-button" onClick={()=>setNotice("PDF compilation is not configured yet. Connect the Tectonic compiler service to enable builds.")}><Play size={15} fill="currentColor"/> Compile</button>
+          <button className="compile-button" onClick={compileDocument} disabled={compiling}><Play size={15} fill="currentColor"/> {compiling ? "Compiling…" : "Compile"}</button>
           <button className="editor-icon" aria-label="More options"><MoreHorizontal size={19}/></button>
         </div>
       </header>
@@ -188,22 +227,25 @@ export default function ProjectEditor() {
         <section className="preview-pane">
           <div className="preview-toolbar">
             <div className="preview-tabs"><button className={tab==="preview"?"active":""} onClick={()=>setTab("preview")}>PDF preview</button><button className={tab==="source"?"active":""} onClick={()=>setTab("source")}>Rich preview</button></div>
-            <div className="preview-tools"><span className="compile-status"><span/> Not compiled</span><button title="Download source" onClick={downloadSource}><Download size={15}/></button><button title="Fullscreen"><Maximize2 size={15}/></button></div>
+            <div className="preview-tools"><span className="compile-status"><span className={pdfUrl ? "compiled" : ""}/> {compiling ? "Compiling…" : pdfUrl ? "PDF ready" : "Not compiled"}</span><button title="Download source" onClick={downloadSource}><Download size={15}/></button><button title="Fullscreen"><Maximize2 size={15}/></button></div>
           </div>
-          {tab === "preview" ? <div className="pdf-empty">
-            <div className="pdf-page-placeholder">
-              <div className="pdf-paper-top"><span>OPEN RESEARCH STUDIO</span><span>PREVIEW</span></div>
-              <div className="pdf-title-line"/><div className="pdf-title-line short"/>
-              <div className="pdf-author-line"/>
-              <div className="pdf-section-label">Abstract</div>
-              <div className="pdf-line"/><div className="pdf-line"/><div className="pdf-line medium"/>
-              <div className="pdf-section-label">1. Introduction</div>
-              <div className="pdf-line"/><div className="pdf-line"/><div className="pdf-line"/><div className="pdf-line medium"/>
-              <div className="pdf-equation">E = mc²</div>
-              <div className="pdf-line"/><div className="pdf-line medium"/>
-              <div className="pdf-placeholder-watermark"><FileText size={18}/> PDF preview will appear here</div>
-            </div>
-            <div className="preview-empty-copy"><strong>Your PDF preview</strong><span>Compile your document to generate a typeset PDF. A TeX compiler service has not been connected yet.</span><button className="compile-button" onClick={()=>setNotice("PDF compilation requires the Tectonic service. No build was run.")}><Play size={14} fill="currentColor"/> Compile document</button></div>
+          {tab === "preview" ? <div className="pdf-viewer">
+            {pdfUrl ? <iframe className="pdf-frame" src={pdfUrl} title="Compiled PDF preview"/> : <div className="pdf-empty">
+              <div className="pdf-page-placeholder">
+                <div className="pdf-paper-top"><span>OPEN RESEARCH STUDIO</span><span>PREVIEW</span></div>
+                <div className="pdf-title-line"/><div className="pdf-title-line short"/>
+                <div className="pdf-author-line"/>
+                <div className="pdf-section-label">Abstract</div>
+                <div className="pdf-line"/><div className="pdf-line"/><div className="pdf-line medium"/>
+                <div className="pdf-section-label">1. Introduction</div>
+                <div className="pdf-line"/><div className="pdf-line"/><div className="pdf-line"/><div className="pdf-line medium"/>
+                <div className="pdf-equation">E = mc²</div>
+                <div className="pdf-line"/><div className="pdf-line medium"/>
+                <div className="pdf-placeholder-watermark"><FileText size={18}/> PDF preview will appear here</div>
+              </div>
+              <div className="preview-empty-copy"><strong>Your PDF preview</strong><span>Compile your LaTeX source to generate a real PDF using Tectonic.</span><button className="compile-button" onClick={compileDocument} disabled={compiling}><Play size={14} fill="currentColor"/> {compiling ? "Compiling…" : "Compile document"}</button></div>
+            </div>}
+            {compileError && <div className="compile-error"><div><AlertCircle size={15}/><strong>{compileError}</strong></div>{compileLogs && <pre>{compileLogs}</pre>}</div>}
           </div> : <div className="rich-preview"><h1>Research Project</h1><p className="rich-author">Author Name</p><h3>Abstract</h3><p>Write your abstract here. Summarize the research problem, methodology, key findings, and contribution of this work.</p><h2>1. Introduction</h2><p>Introduce the research problem and explain why it matters. Describe the context, motivation, and the specific gap this work addresses.</p><h2>2. Related Work</h2><p>Review relevant literature and position your contribution.</p><h2>3. Methodology</h2><p>Describe the proposed approach in enough detail for reproducibility.</p><div className="math-block">E = mc²</div><h2>4. Results and Discussion</h2><p>Present your findings and discuss their implications.</p><h2>5. Conclusion</h2><p>Summarize the contributions and outline future work.</p></div>}
         </section>
 
