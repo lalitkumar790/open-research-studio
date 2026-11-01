@@ -273,7 +273,6 @@ export default function ProjectEditor() {
             </div>
           </div>
           <div className="pdf-viewer">
-          {tab === "preview" ? <div className="pdf-viewer">
             {pdfUrl ? <iframe className="pdf-frame" src={pdfUrl + "#toolbar=0&navpanes=0&scrollbar=1&view=FitH"} title="Compiled PDF preview"/> : <div className="pdf-empty">
               <div className="pdf-page-placeholder">
                 <div className="pdf-paper-top"><span>OPEN RESEARCH STUDIO</span><span>PREVIEW</span></div>
