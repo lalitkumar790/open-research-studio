@@ -47,3 +47,10 @@ Open http://localhost:3000.
 ## Note
 
 This is an independent implementation. It does not use OpenAI's private source code, internal APIs, or proprietary assets, and is not affiliated with OpenAI.
+
+
+## Current limitations
+
+- Dashboard projects and folders are stored in browser local storage, not an account-backed database. They do not sync across browsers or devices.
+- Editor source is stored locally per project in the current browser.
+- Vercel hosts the web interface, but hosted LaTeX compilation is not enabled yet. The current Tectonic integration requires a native executable; use the Docker deployment for compilation.
