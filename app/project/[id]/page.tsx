@@ -241,10 +241,10 @@ export default function ProjectEditor() {
       }
       const inputBytes = new Blob([entrySource, ...Object.values(compileFiles)]).size;
       track("compile_started", { input_bytes: inputBytes, supporting_files: Object.keys(compileFiles).length, entry_file: entryFile });
-      const response = await fetch("/api/compile", {
+      const response = await authenticatedFetch("/api/compile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: entrySource, files: compileFiles, entryFile })
+        body: JSON.stringify({ projectId: id, source: entrySource, files: compileFiles, entryFile })
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({ error: "Compilation failed." }));
