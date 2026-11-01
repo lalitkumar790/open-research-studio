@@ -113,7 +113,7 @@ export async function createDownloadUrl(userId: string, projectId: string, fileI
     LIMIT 1
   `;
   const file = rows[0];
-  if (!file?.storage_key || !String(file.storage_key).startsWith(`${userId}/${projectId}/`)) {
+  if (!file?.storage_key || String(file.storage_key).split("/")[1] !== projectId) {
     throw new Error("File not found.");
   }
   const command = new GetObjectCommand({
