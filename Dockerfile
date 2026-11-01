@@ -13,7 +13,9 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM node:20-bookworm-slim AS runner
+# Tectonic's current prebuilt Linux binary requires GLIBC 2.39.
+# Ubuntu 24.04 (Noble) provides GLIBC 2.39; Bookworm only provides 2.36.
+FROM node:20-noble-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -22,7 +24,7 @@ ENV HOSTNAME=0.0.0.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl libfontconfig1 libfreetype6 libharfbuzz0b \
-    libicu72 libgraphite2-3 libpng16-16 libssl3 \
+    libicu74 libgraphite2-3 libpng16-16 libssl3t64 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the official prebuilt Tectonic executable.
