@@ -50,6 +50,7 @@ export default function ProjectEditor() {
   const [compileLogs, setCompileLogs] = useState("");
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const pendingCursorRef = useRef<number | null>(null);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
 
 
 
@@ -84,18 +85,21 @@ export default function ProjectEditor() {
   useEffect(() => {
     if (!hydrated) return;
     setSaved(false);
-    const timer = window.setTimeout(async () => {
-      try {
-        const [renameResponse, filesResponse] = await Promise.all([
-          authenticatedFetch(`/api/projects/${id}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({name}) }),
-          authenticatedFetch(`/api/projects/${id}/files`, { method: "PUT", headers: {"Content-Type":"application/json"}, body: JSON.stringify({files:[{path:"main.tex",content:source},...Object.entries(extraFiles).map(([path,content])=>({path,content}))]}) })
-        ]);
-        if (!renameResponse.ok || !filesResponse.ok) throw new Error("Cloud save failed. Check your connection and sign-in.");
-        setSaved(true);
-      } catch (error) {
-        setSaved(false);
-        setNotice(error instanceof Error ? error.message : "Could not save project.");
-      }
+    const timer = window.setTimeout(() => {
+      const snapshot = { name, files: [{path:"main.tex",content:source},...Object.entries(extraFiles).map(([path,content])=>({path,content}))] };
+      saveQueueRef.current = saveQueueRef.current.catch(() => undefined).then(async () => {
+        try {
+          const [renameResponse, filesResponse] = await Promise.all([
+            authenticatedFetch(`/api/projects/${id}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({name:snapshot.name}) }),
+            authenticatedFetch(`/api/projects/${id}/files`, { method: "PUT", headers: {"Content-Type":"application/json"}, body: JSON.stringify({files:snapshot.files}) })
+          ]);
+          if (!renameResponse.ok || !filesResponse.ok) throw new Error("Cloud save failed. Check your connection and sign-in.");
+          setSaved(true);
+        } catch (error) {
+          setSaved(false);
+          setNotice(error instanceof Error ? error.message : "Could not save project.");
+        }
+      });
     }, 700);
     return () => window.clearTimeout(timer);
   }, [source, name, extraFiles, id, hydrated]);
