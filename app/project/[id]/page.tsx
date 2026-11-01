@@ -69,6 +69,7 @@ export default function ProjectEditor() {
   const id = String(params.id ?? "project");
   const [name, setName] = useState("New Project");
   const [source, setSource] = useState(starter);
+  const [extraFiles, setExtraFiles] = useState<Record<string, string>>({ "references.bib": "% Add BibTeX entries here.\\n" });
   const [tab, setTab] = useState<"preview" | "source">("preview");
   const [showFiles, setShowFiles] = useState(true);
   const [showAssistant, setShowAssistant] = useState(true);
@@ -98,6 +99,7 @@ export default function ProjectEditor() {
         const data = JSON.parse(stored);
         if (typeof data.source === "string") setSource(data.source);
         if (typeof data.name === "string") setName(data.name);
+        if (data.extraFiles && typeof data.extraFiles === "object" && !Array.isArray(data.extraFiles)) setExtraFiles(data.extraFiles);
       }
     } catch {}
   }, [storageKey]);
@@ -105,15 +107,17 @@ export default function ProjectEditor() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        localStorage.setItem(storageKey, JSON.stringify({ source, name }));
+        localStorage.setItem(storageKey, JSON.stringify({ source, name, extraFiles }));
         setSaved(true);
       } catch { setSaved(false); }
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [source, name, storageKey]);
+  }, [source, name, extraFiles, storageKey]);
+
+  const activeContent = activeFile === "main.tex" ? source : (extraFiles[activeFile] ?? "");
 
   function downloadSource() {
-    const blob = new Blob([source], { type: "application/x-tex;charset=utf-8" });
+    const blob = new Blob([activeContent], { type: activeFile.endsWith(".bib") ? "text/plain;charset=utf-8" : "application/x-tex;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = activeFile; a.click();
@@ -133,7 +137,7 @@ export default function ProjectEditor() {
       const response = await fetch("/api/compile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source })
+        body: JSON.stringify({ source, files: extraFiles })
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({ error: "Compilation failed." }));
@@ -194,12 +198,12 @@ export default function ProjectEditor() {
 
       <div className="editor-workspace">
         {showFiles && <aside className="file-sidebar">
-          <div className="pane-heading"><span>PROJECT</span><div><button title="New file" onClick={()=>setNotice("Multi-file project support is coming next.")}><Plus size={15}/></button><button title="Collapse files" onClick={()=>setShowFiles(false)}><PanelLeft size={15}/></button></div></div>
+          <div className="pane-heading"><span>PROJECT</span><div><button title="New file" onClick={()=>{const file=window.prompt("New file name (example: appendix.tex)");if(!file)return;const safe=file.trim();if(!/^[a-zA-Z0-9_-]+\\.(tex|bib|txt|sty|cls)$/.test(safe)){setNotice("Use a simple .tex, .bib, .txt, .sty or .cls filename.");return;}if(safe==="main.tex"||extraFiles[safe]!==undefined){setNotice("That file already exists.");return;}setExtraFiles(current=>({...current,[safe]:""}));setActiveFile(safe);setNotice("Created "+safe);}}><Plus size={15}/></button><button title="Collapse files" onClick={()=>setShowFiles(false)}><PanelLeft size={15}/></button></div></div>
           <div className="file-tree">
             <div className="tree-folder"><ChevronDown size={14}/><FolderOpen size={16}/> <span>{name}</span></div>
             <button className={`tree-file ${activeFile==="main.tex"?"active":""}`} onClick={()=>setActiveFile("main.tex")}><FileText size={15}/> main.tex</button>
-            <button className="tree-file muted-file" onClick={()=>setNotice("Create references.bib when bibliography editing is enabled.")}><FileText size={15}/> references.bib</button>
-            <div className="tree-folder muted-file"><ChevronRight size={14}/><Folder size={16}/> <span>figures</span></div>
+            {Object.keys(extraFiles).sort().map(file=><button key={file} className={`tree-file ${activeFile===file?"active":""}`} onClick={()=>setActiveFile(file)}><FileText size={15}/> {file}</button>)}
+            <label className="tree-file"><Plus size={15}/> Import files<input type="file" accept=".bib,.txt,.sty,.cls" multiple hidden onChange={e=>{Array.from(e.target.files??[]).forEach(file=>{if(file.size>200*1024){setNotice(file.name+" exceeds 200 KB.");return;}if(!/\.(bib|txt|sty|cls)$/i.test(file.name)){setNotice("Unsupported file: "+file.name);return;}const reader=new FileReader();reader.onload=()=>setExtraFiles(current=>({...current,[file.name]:String(reader.result??"")}));reader.readAsText(file);});e.currentTarget.value="";}}/></label>
           </div>
           <div className="file-sidebar-bottom"><Settings size={15}/> Project settings</div>
         </aside>}
@@ -212,21 +216,21 @@ export default function ProjectEditor() {
             <button className="pane-tab-icon" title="Insert section" onClick={insertSection}><Plus size={16}/></button>
             <button className="pane-tab-icon" title="Download source" onClick={downloadSource}><Download size={15}/></button>
           </div>
-          <div className="editor-subbar"><span>LaTeX</span><span>UTF-8</span><span>Ln {source.split("\n").length}, Col 1</span></div>
+          <div className="editor-subbar"><span>{activeFile.endsWith(".bib")?"BibTeX":activeFile.endsWith(".tex")?"LaTeX":"Text"}</span><span>UTF-8</span><span>Ln {activeContent.split("\n").length}, Col 1</span></div>
           <div className="code-editor-wrap">
-            <div className="line-numbers">{source.split("\n").map((_,i)=><span key={i}>{i+1}</span>)}</div>
+            <div className="line-numbers">{activeContent.split("\n").map((_,i)=><span key={i}>{i+1}</span>)}</div>
             <textarea
               className="latex-editor"
               spellCheck={false}
-              value={source}
-              onChange={e=>{setSource(e.target.value);setSaved(false);}}
+              value={activeContent}
+              onChange={e=>{if(activeFile==="main.tex")setSource(e.target.value);else setExtraFiles(current=>({...current,[activeFile]:e.target.value}));setSaved(false);}}
               aria-label="LaTeX source editor"
               onKeyDown={e=>{
                 if(e.key==="Tab"){e.preventDefault();const t=e.currentTarget;const start=t.selectionStart;const end=t.selectionEnd;const value=t.value;t.value=value.slice(0,start)+"  "+value.slice(end);t.selectionStart=t.selectionEnd=start+2;setSource(t.value);}
               }}
             />
           </div>
-          <div className="source-footer"><span><Code2 size={13}/> LaTeX source</span><span>{source.length.toLocaleString()} characters</span></div>
+          <div className="source-footer"><span><Code2 size={13}/> {activeFile}</span><span>{activeContent.length.toLocaleString()} characters</span></div>
         </section>
 
         <section className="preview-pane">
@@ -256,7 +260,7 @@ export default function ProjectEditor() {
 
         {showAssistant && <aside className="assistant-pane">
           <div className="assistant-heading"><div><Sparkles size={16}/> <strong>AI Assistant</strong></div><button onClick={()=>setShowAssistant(false)} title="Close assistant"><X size={16}/></button></div>
-          <div className="assistant-context"><span className="context-chip"><FileText size={12}/> main.tex</span><span className="context-chip"><BookOpen size={12}/> Research writing</span></div>
+          <div className="assistant-context"><span className="context-chip"><FileText size={12}/> {activeFile}</span><span className="context-chip"><BookOpen size={12}/> Research writing</span></div>
           <div className="assistant-messages">
             {messages.map((m,i)=><div className={`assistant-message ${m.role}`} key={i}>{m.role==="assistant"&&<span className="assistant-avatar"><Sparkles size={13}/></span>}<p>{m.text}</p></div>)}
           </div>
