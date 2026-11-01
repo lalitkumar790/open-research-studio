@@ -17,7 +17,7 @@ export async function getAccessToken(): Promise<string> {
       if (typeof token === "string" && token) return token;
     }
   }
-  const response = await fetch(`${authUrl.replace(/\\/$/, "")}/token`, {
+  const response = await fetch(`${authUrl.replace(/\/+$/, "")}/token`, {
     method: "GET", credentials: "include", cache: "no-store",
   });
   if (!response.ok) throw new Error("Your session has expired. Please sign in again.");
