@@ -214,30 +214,33 @@ export default function ProjectEditor() {
       setCompileError("The selected .tex file is empty or unavailable.");
       return;
     }
-    const supportingFiles: Record<string, string> = entryFile === "main.tex"
-      ? { ...extraFiles }
-      : { ...extraFiles, "main.tex": source };
-    delete supportingFiles[entryFile];
-    const compileFiles: Record<string,string> = { ...supportingFiles };
-    for (const [path, fileId] of Object.entries(binaryFiles)) {
-      const signed = await authenticatedFetch(`/api/projects/${id}/files/${fileId}/download-url`);
-      const signedData = await signed.json();
-      if (!signed.ok) throw new Error(signedData.error || "Could not prepare " + path);
-      const binaryResponse = await fetch(signedData.url);
-      if (!binaryResponse.ok) throw new Error("Could not download " + path + " for compilation.");
-      const awaitBlob = await binaryResponse.blob();
-      const dataUrl = await new Promise<string>((resolve,reject) => {
-        const reader = new FileReader(); reader.onload=()=>resolve(String(reader.result||"")); reader.onerror=()=>reject(new Error("Could not read "+path)); reader.readAsDataURL(awaitBlob);
-      });
-      compileFiles[path] = dataUrl;
-    }
-    const inputBytes = new Blob([entrySource, ...Object.values(compileFiles)]).size;
-    track("compile_started", { input_bytes: inputBytes, supporting_files: Object.keys(supportingFiles).length, entry_file: entryFile });
     setCompiling(true);
     setCompileError("");
     setCompileLogs("");
     setNotice("");
     try {
+      const supportingFiles: Record<string, string> = entryFile === "main.tex"
+        ? { ...extraFiles }
+        : { ...extraFiles, "main.tex": source };
+      delete supportingFiles[entryFile];
+      const compileFiles: Record<string,string> = { ...supportingFiles };
+      for (const [path, fileId] of Object.entries(binaryFiles)) {
+        const signed = await authenticatedFetch(`/api/projects/${id}/files/${fileId}/download-url`);
+        const signedData = await signed.json();
+        if (!signed.ok) throw new Error(signedData.error || "Could not prepare " + path);
+        const binaryResponse = await fetch(signedData.url);
+        if (!binaryResponse.ok) throw new Error("Could not download " + path + " for compilation.");
+        const blob = await binaryResponse.blob();
+        const dataUrl = await new Promise<string>((resolve,reject) => {
+          const reader = new FileReader();
+          reader.onload=()=>resolve(String(reader.result||""));
+          reader.onerror=()=>reject(new Error("Could not read "+path));
+          reader.readAsDataURL(blob);
+        });
+        compileFiles[path] = dataUrl;
+      }
+      const inputBytes = new Blob([entrySource, ...Object.values(compileFiles)]).size;
+      track("compile_started", { input_bytes: inputBytes, supporting_files: Object.keys(compileFiles).length, entry_file: entryFile });
       const response = await fetch("/api/compile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -253,10 +256,7 @@ export default function ProjectEditor() {
       const pdf = await response.blob();
       track("compile_succeeded", { duration_ms: Date.now() - compileStartedAt, input_bytes: inputBytes, output_bytes: pdf.size, entry_file: entryFile });
       const nextUrl = URL.createObjectURL(pdf);
-      setPdfUrl(current => {
-        if (current) URL.revokeObjectURL(current);
-        return nextUrl;
-      });
+      setPdfUrl(current => { if (current) URL.revokeObjectURL(current); return nextUrl; });
     } catch (error) {
       track("compile_failed", { duration_ms: Date.now() - compileStartedAt, status: "network" });
       setCompileError(error instanceof Error ? error.message : "Could not reach the compiler.");
