@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { canAccessProject, getStorageContext } from "@/lib/server/storage";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile, stat } from "node:fs/promises";
 import os from "node:os";
@@ -15,18 +16,20 @@ const COMPILE_TIMEOUT_MS = 35_000;
 const MAX_CONCURRENT_COMPILES = 2;
 let activeCompiles = 0;
 
-type CompilePayload = { source?: unknown; files?: unknown; entryFile?: unknown };
+type CompilePayload = { source?: unknown; files?: unknown; entryFile?: unknown; projectId?: unknown };
 
 function validatePayload(payload: unknown) {
   const body = payload as CompilePayload | null;
   const source = body?.source;
   const entryFile = typeof body?.entryFile === "string" ? body.entryFile : "main.tex";
+  const projectId = typeof body?.projectId === "string" ? body.projectId : "";
   const entrySegments = entryFile.replace(/\\\\/g, "/").split("/");
   const safeEntry = entryFile.endsWith(".tex") && !entryFile.startsWith("/") && entrySegments.every(segment => segment && segment !== "." && segment !== ".." && /^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(segment) && !segment.startsWith("."));
   const files = body?.files && typeof body.files === "object" && !Array.isArray(body.files)
     ? body.files as Record<string, unknown>
     : {};
   if (!safeEntry) return { error: "The selected entry file must be a safe relative .tex path.", status: 400 as const };
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)) return { error: "A valid project ID is required to compile.", status: 400 as const };
   if (typeof source !== "string" || !source.trim()) {
     return { error: "Provide non-empty LaTeX source in the 'source' field.", status: 400 as const };
   }
@@ -58,7 +61,7 @@ function validatePayload(payload: unknown) {
   }
   if (totalBytes > MAX_PROJECT_BYTES) return { error: "The total project size limit is 3 MB.", status: 413 as const };
   if (Object.prototype.hasOwnProperty.call(files, entryFile)) return { error: "The selected entry file must be sent as source, not as a supporting file.", status: 400 as const };
-  return { source, files: files as Record<string, string>, entryFile, totalBytes };
+  return { source, files: files as Record<string, string>, entryFile, projectId, totalBytes };
 }
 
 async function readPayload(request: NextRequest) {
@@ -120,6 +123,9 @@ function runTectonic(cwd: string, outputDir: string, entryFile: string) {
 export async function POST(request: NextRequest) {
   const parsed = await readPayload(request);
   if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  const context = await getStorageContext(request);
+  if ("error" in context) return NextResponse.json({ error: context.error }, { status: context.status });
+  if (!await canAccessProject(context.user.id, parsed.projectId, true)) return NextResponse.json({ error: "You do not have permission to compile this project." }, { status: 403 });
 
   // Vercel is the public edge. It forwards only validated source to the private compiler.
   if (process.env.VERCEL) {

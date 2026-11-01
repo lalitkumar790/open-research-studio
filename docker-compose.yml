@@ -8,6 +8,8 @@ services:
     environment:
       NODE_ENV: production
       TECTONIC_BIN: /usr/local/bin/tectonic
+      HOME: /tmp
+      XDG_CACHE_HOME: /tmp/ors-tectonic-cache
       ORS_COMPILER_TOKEN: ${ORS_COMPILER_TOKEN:?Set ORS_COMPILER_TOKEN in the server environment}
     read_only: true
     tmpfs:

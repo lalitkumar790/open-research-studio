@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { authenticatedFetch } from "../../../lib/auth/client";
 import { track } from "@vercel/analytics";
+import DocumentOutline from "../../../components/DocumentOutline";
+import ReferenceManager from "../../../components/ReferenceManager";
 import {
   ArrowLeft, ChevronDown, ChevronRight, FileText, Folder, FolderOpen,
   PanelLeft, PanelRight, Search, Settings, Sparkles, Play, Download,
@@ -25,11 +28,14 @@ const outline = [
 
 export default function ProjectEditor() {
   const params = useParams();
+  const router = useRouter();
   const id = String(params.id ?? "project");
   const [name, setName] = useState("New Project");
   const [source, setSource] = useState("");
+  const [mainFileExists, setMainFileExists] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [extraFiles, setExtraFiles] = useState<Record<string, string>>({});
+  const [binaryFiles, setBinaryFiles] = useState<Record<string, string>>({});
   const [showFiles, setShowFiles] = useState(true);
   const [showAssistant, setShowAssistant] = useState(true);
   const [assistantText, setAssistantText] = useState("");
@@ -43,80 +49,136 @@ export default function ProjectEditor() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [compileError, setCompileError] = useState("");
   const [compileLogs, setCompileLogs] = useState("");
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const pendingCursorRef = useRef<number | null>(null);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
 
-  const storageKey = useMemo(() => "ors-project-" + id, [id]);
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const queryName = params.get("name");
-    if (queryName) setName(queryName);
-  }, []);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const queryName = params.get("name");
-    if (queryName) setName(queryName);
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const data = JSON.parse(stored);
-        if (typeof data.source === "string") setSource(data.source);
-        if (typeof data.name === "string") setName(data.name);
-        if (data.extraFiles && typeof data.extraFiles === "object" && !Array.isArray(data.extraFiles)) setExtraFiles(data.extraFiles);
-      } else if (params.get("template") === "example") {
-        setSource(exampleTemplate);
-        setExtraFiles({ "references.bib": exampleReferences });
+    let alive = true;
+    (async () => {
+      try {
+        const response = await authenticatedFetch(`/api/projects/${id}`);
+        if (response.status === 401) { router.replace("/auth"); return; }
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not load project.");
+        if (!alive) return;
+        setName(data.project.name);
+        const text: Record<string,string> = {};
+        const binary: Record<string,string> = {};
+        for (const file of data.files || []) {
+          if (file.isBinary) binary[file.path] = file.id;
+          else if (typeof file.content === "string" && file.path !== "main.tex") text[file.path] = file.content;
+          else if (file.path === "main.tex" && typeof file.content === "string") {
+            setSource(file.content);
+            setMainFileExists(true);
+          }
+        }
+        setExtraFiles(text);
+        setBinaryFiles(binary);
+      } catch (error) {
+        if (alive) setNotice(error instanceof Error ? error.message : "Could not restore this project.");
+      } finally {
+        if (alive) setHydrated(true);
       }
-    } catch {
-      setNotice("This project could not be fully restored from browser storage.");
-    }
-    setHydrated(true);
-  }, [storageKey]);
+    })();
+    return () => { alive = false; };
+  }, [id, router]);
 
   useEffect(() => {
     if (!hydrated) return;
+    setSaved(false);
     const timer = window.setTimeout(() => {
-      try {
-        localStorage.setItem(storageKey, JSON.stringify({ source, name, extraFiles }));
-        setSaved(true);
-      } catch { setSaved(false); }
-    }, 500);
+      const textFiles = Object.entries(extraFiles).map(([path,content])=>({path,content}));
+      if (mainFileExists) textFiles.unshift({path:"main.tex",content:source});
+      const snapshot = { name, files: textFiles };
+      saveQueueRef.current = saveQueueRef.current.catch(() => undefined).then(async () => {
+        try {
+          const [renameResponse, filesResponse] = await Promise.all([
+            authenticatedFetch(`/api/projects/${id}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({name:snapshot.name}) }),
+            authenticatedFetch(`/api/projects/${id}/files`, { method: "PUT", headers: {"Content-Type":"application/json"}, body: JSON.stringify({files:snapshot.files,replaceTextFiles:true}) })
+          ]);
+          if (!renameResponse.ok || !filesResponse.ok) throw new Error("Cloud save failed. Check your connection and sign-in.");
+          setSaved(true);
+        } catch (error) {
+          setSaved(false);
+          setNotice(error instanceof Error ? error.message : "Could not save project.");
+        }
+      });
+    }, 700);
     return () => window.clearTimeout(timer);
-  }, [source, name, extraFiles, storageKey, hydrated]);
+  }, [source, mainFileExists, name, extraFiles, id, hydrated]);
 
-  function importProjectFiles(fileList: FileList | File[]) {
+  async function importProjectFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList);
     const relativePaths = files.map(file => (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name);
     const firstSegments = relativePaths.map(path => path.split("/")[0]);
     const commonRoot = files.length > 0 && firstSegments.every(part => part === firstSegments[0]) && relativePaths.every(path => path.includes("/")) ? firstSegments[0] + "/" : "";
-    const projectPaths = relativePaths.map(path => path.replace(/\\/g, "/").slice(commonRoot.length));
-    const entryTexPath = projectPaths.find(path => path.toLowerCase() === "main.tex")
-      ?? projectPaths.find(path => path.toLowerCase().endsWith(".tex"));
+    const projectPaths = relativePaths.map(path => path.replace(/\\\\/g, "/").slice(commonRoot.length));
+    const entryTexPath = projectPaths.find(path => path.toLowerCase() === "main.tex") ?? projectPaths.find(path => path.toLowerCase().endsWith(".tex"));
     let imported = 0;
     for (let index = 0; index < files.length; index++) {
       const file = files[index];
-      const normalizedPath = relativePaths[index].replace(/\\/g, "/").slice(commonRoot.length);
-      const parts = normalizedPath.split("/");
-      if (parts.some(part => !part || part === "." || part === ".." || part.startsWith(".") || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(part))) { setNotice("Unsafe project path: " + normalizedPath); continue; }
-      if (!/\.(tex|bib|txt|sty|cls|png|jpe?g|pdf)$/i.test(normalizedPath)) { setNotice("Unsupported file: " + normalizedPath); continue; }
-      if (file.size > 2 * 1024 * 1024) { setNotice(normalizedPath + " exceeds 2 MB."); continue; }
-      const binary = /\.(png|jpe?g|pdf)$/i.test(normalizedPath);
-      const reader = new FileReader();
-      reader.onload = () => {
-        const contents = String(reader.result ?? "");
-        if (normalizedPath === entryTexPath) setSource(contents);
-        else setExtraFiles(current => ({ ...current, [normalizedPath]: contents }));
-        track("files_imported", { count: 1, bytes: file.size, format: normalizedPath.split(".").pop() || "text" });
-      };
-      if (binary) reader.readAsDataURL(file); else reader.readAsText(file);
-      imported++;
+      const path = projectPaths[index];
+      const parts = path.split("/");
+      if (parts.some(part => !part || part === "." || part === ".." || part.startsWith(".") || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(part))) { setNotice("Unsafe project path: " + path); continue; }
+      if (!/\\.(tex|bib|txt|sty|cls|png|jpe?g|pdf)$/i.test(path)) { setNotice("Unsupported file: " + path); continue; }
+      if (file.size > 10 * 1024 * 1024) { setNotice(path + " exceeds 10 MB."); continue; }
+      if (/\\.(png|jpe?g|pdf)$/i.test(path)) {
+        try {
+          const contentType = file.type || (path.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/octet-stream");
+          const signed = await authenticatedFetch(`/api/projects/${id}/files/upload-url`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({path,contentType,byteSize:file.size}) });
+          const signedData = await signed.json();
+          if (!signed.ok) throw new Error(signedData.error || "Could not prepare upload.");
+          const upload = await fetch(signedData.url, { method:"PUT", headers:{"Content-Type":contentType}, body:file });
+          if (!upload.ok) throw new Error("Upload failed for " + path);
+          const complete = await authenticatedFetch(`/api/projects/${id}/files/${signedData.fileId}/complete`, {method:"POST"});
+          if (!complete.ok) throw new Error("Could not verify " + path);
+          setBinaryFiles(current => ({...current,[path]:signedData.fileId}));
+          imported++;
+        } catch (error) { setNotice(error instanceof Error ? error.message : "Could not upload " + path); }
+      } else {
+        const text = await file.text();
+        if (path === entryTexPath) { setSource(text); setMainFileExists(true); }
+        else setExtraFiles(current => ({...current,[path]:text}));
+        imported++;
+      }
+      track("files_imported", {count:1,bytes:file.size,format:path.split(".").pop()||"text"});
     }
-    if (imported) setNotice("Importing " + imported + " project file" + (imported === 1 ? "" : "s") + "…");
+    if (imported) setNotice("Imported " + imported + " project file" + (imported===1?"":"s") + ".");
   }
 
 
   const isBinaryAsset = /\.(png|jpe?g|pdf)$/i.test(activeFile);
   const activeContent = activeFile === "main.tex" ? source : (isBinaryAsset ? "[Binary project asset — included when compiling]" : (extraFiles[activeFile] ?? ""));
+
+  useEffect(() => {
+    if (pendingCursorRef.current === null || isBinaryAsset) return;
+    const position = pendingCursorRef.current;
+    const editor = editorRef.current;
+    if (editor) {
+      editor.focus();
+      editor.setSelectionRange(position, position);
+    }
+    pendingCursorRef.current = null;
+  }, [activeContent, isBinaryAsset]);
+
+  function insertAtCursor(text: string) {
+    if (!activeFile.toLowerCase().endsWith(".tex")) {
+      setNotice("Open a .tex file to insert a citation.");
+      return;
+    }
+    const editor = editorRef.current;
+    const start = editor?.selectionStart ?? activeContent.length;
+    const end = editor?.selectionEnd ?? start;
+    const next = activeContent.slice(0, start) + text + activeContent.slice(end);
+    pendingCursorRef.current = start + text.length;
+    if (activeFile === "main.tex") { setSource(next); setMainFileExists(true); }
+    else setExtraFiles(current => ({ ...current, [activeFile]: next }));
+    setSaved(false);
+    setNotice("Citation inserted into " + activeFile);
+  }
 
   function downloadProject() {
     const bundle = { format: "open-research-studio-project", version: 1, exportedAt: new Date().toISOString(), name, source, extraFiles };
@@ -127,12 +189,23 @@ export default function ProjectEditor() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function downloadSource() {
-    const blob = new Blob([activeContent], { type: activeFile.endsWith(".bib") ? "text/plain;charset=utf-8" : "application/x-tex;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = activeFile; a.click();
-    URL.revokeObjectURL(url);
+  async function downloadSource() {
+    try {
+      let blob: Blob;
+      if (binaryFiles[activeFile]) {
+        const response = await authenticatedFetch(`/api/projects/${id}/files/${binaryFiles[activeFile]}/download-url`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not prepare download.");
+        const fileResponse = await fetch(data.url);
+        if (!fileResponse.ok) throw new Error("Could not download file.");
+        blob = await fileResponse.blob();
+      } else {
+        blob = new Blob([activeContent], { type: activeFile.endsWith(".bib") ? "text/plain;charset=utf-8" : "application/x-tex;charset=utf-8" });
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href=url; a.download=activeFile.split("/").pop()||activeFile; a.click();
+      window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Could not download file."); }
   }
 
   useEffect(() => {
@@ -141,27 +214,47 @@ export default function ProjectEditor() {
 
   async function compileDocument() {
     const compileStartedAt = Date.now();
-    const entryFile = activeFile.toLowerCase().endsWith(".tex") ? activeFile : "main.tex";
+    if (!activeFile.toLowerCase().endsWith(".tex")) {
+      setCompileError("Open a .tex file before compiling.");
+      return;
+    }
+    const entryFile = activeFile;
     const entrySource = entryFile === "main.tex" ? source : extraFiles[entryFile];
     if (typeof entrySource !== "string" || !entrySource.trim()) {
       setCompileError("The selected .tex file is empty or unavailable.");
       return;
     }
-    const supportingFiles = entryFile === "main.tex"
-      ? { ...extraFiles }
-      : { ...extraFiles, "main.tex": source };
-    delete supportingFiles[entryFile];
-    const inputBytes = new Blob([entrySource, ...Object.values(supportingFiles)]).size;
-    track("compile_started", { input_bytes: inputBytes, supporting_files: Object.keys(supportingFiles).length, entry_file: entryFile });
     setCompiling(true);
     setCompileError("");
     setCompileLogs("");
     setNotice("");
     try {
-      const response = await fetch("/api/compile", {
+      const supportingFiles: Record<string, string> = entryFile === "main.tex"
+        ? { ...extraFiles }
+        : { ...extraFiles, "main.tex": source };
+      delete supportingFiles[entryFile];
+      const compileFiles: Record<string,string> = { ...supportingFiles };
+      for (const [path, fileId] of Object.entries(binaryFiles)) {
+        const signed = await authenticatedFetch(`/api/projects/${id}/files/${fileId}/download-url`);
+        const signedData = await signed.json();
+        if (!signed.ok) throw new Error(signedData.error || "Could not prepare " + path);
+        const binaryResponse = await fetch(signedData.url);
+        if (!binaryResponse.ok) throw new Error("Could not download " + path + " for compilation.");
+        const blob = await binaryResponse.blob();
+        const dataUrl = await new Promise<string>((resolve,reject) => {
+          const reader = new FileReader();
+          reader.onload=()=>resolve(String(reader.result||""));
+          reader.onerror=()=>reject(new Error("Could not read "+path));
+          reader.readAsDataURL(blob);
+        });
+        compileFiles[path] = dataUrl;
+      }
+      const inputBytes = new Blob([entrySource, ...Object.values(compileFiles)]).size;
+      track("compile_started", { input_bytes: inputBytes, supporting_files: Object.keys(compileFiles).length, entry_file: entryFile });
+      const response = await authenticatedFetch("/api/compile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: entrySource, files: supportingFiles, entryFile })
+        body: JSON.stringify({ projectId: id, source: entrySource, files: compileFiles, entryFile })
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({ error: "Compilation failed." }));
@@ -173,10 +266,7 @@ export default function ProjectEditor() {
       const pdf = await response.blob();
       track("compile_succeeded", { duration_ms: Date.now() - compileStartedAt, input_bytes: inputBytes, output_bytes: pdf.size, entry_file: entryFile });
       const nextUrl = URL.createObjectURL(pdf);
-      setPdfUrl(current => {
-        if (current) URL.revokeObjectURL(current);
-        return nextUrl;
-      });
+      setPdfUrl(current => { if (current) URL.revokeObjectURL(current); return nextUrl; });
     } catch (error) {
       track("compile_failed", { duration_ms: Date.now() - compileStartedAt, status: "network" });
       setCompileError(error instanceof Error ? error.message : "Could not reach the compiler.");
@@ -195,9 +285,26 @@ export default function ProjectEditor() {
     setAssistantText("");
   }
 
+  function jumpToOutlineLine(line: number) {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const lines = activeContent.split("\n");
+    const position = lines.slice(0, Math.max(0, line - 1)).reduce((total, item) => total + item.length + 1, 0);
+    editor.focus();
+    editor.setSelectionRange(position, position);
+    editor.scrollTop = Math.max(0, (line - 3) * 22);
+  }
+
   function insertSection() {
-    setSource(current => current + "\n\n\\section{New Section}\nWrite your content here.\n");
-    setNotice("Section inserted into main.tex");
+    if (!activeFile.toLowerCase().endsWith(".tex")) {
+      setNotice("Open a .tex file to insert a section.");
+      return;
+    }
+    const section = "\\n\\n\\section{New Section}\\nWrite your content here.\\n";
+    const next = activeContent + section;
+    if (activeFile === "main.tex") { setSource(next); setMainFileExists(true); }
+    else setExtraFiles(current => ({ ...current, [activeFile]: next }));
+    setNotice("Section inserted into " + activeFile);
     window.setTimeout(() => setNotice(""), 2500);
   }
 
@@ -218,7 +325,7 @@ export default function ProjectEditor() {
           <button className="editor-ghost" onClick={downloadSource}><Download size={16}/> Export file</button>
           <button className="editor-ghost" onClick={downloadProject}><Download size={16}/> Export project</button>
           <button className="editor-ghost" onClick={()=>setNotice("Sharing will be available after accounts and permissions are configured.")}><Share2 size={16}/> Share</button>
-          <button className="compile-button" onClick={compileDocument} disabled={compiling}><Play size={15} fill="currentColor"/> {compiling ? "Compiling…" : "Compile"}</button>
+          <button className="compile-button" onClick={compileDocument} disabled={compiling || !activeFile.toLowerCase().endsWith(".tex")}><Play size={15} fill="currentColor"/> {compiling ? "Compiling…" : "Compile"}</button>
           <button className="editor-icon" aria-label="More options"><MoreHorizontal size={19}/></button>
         </div>
       </header>
@@ -230,7 +337,10 @@ export default function ProjectEditor() {
             <div className="tree-folder"><ChevronDown size={14}/><FolderOpen size={16}/> <span>{name}</span></div>
             <button className={`tree-file ${activeFile==="main.tex"?"active":""}`} onClick={()=>setActiveFile("main.tex")}><FileText size={15}/> main.tex</button>
             {Object.keys(extraFiles).sort().map(file=><button key={file} className={`tree-file ${activeFile===file?"active":""}`} onClick={()=>setActiveFile(file)}><FileText size={15}/> {file}</button>)}
+            {Object.keys(binaryFiles).sort().map(file=><button key={file} className={`tree-file ${activeFile===file?"active":""}`} onClick={()=>setActiveFile(file)}><FileText size={15}/> {file}</button>)}
             <button className="tree-file" onClick={()=>document.getElementById("ors-import-files")?.click()}><Plus size={15}/> Add files</button>
+            {activeFile.toLowerCase().endsWith(".tex") && <DocumentOutline source={activeContent} onJump={jumpToOutlineLine}/>}
+            <ReferenceManager files={extraFiles} onInsert={insertAtCursor}/>
             <input id="ors-import-files" type="file" accept=".tex,.bib,.txt,.sty,.cls,.png,.jpg,.jpeg,.pdf" multiple hidden onChange={e=>{if(e.target.files)importProjectFiles(e.target.files);e.currentTarget.value="";}}/>
           </div>
           <div className="file-sidebar-bottom"><Settings size={15}/> Project settings</div>
@@ -248,14 +358,15 @@ export default function ProjectEditor() {
           <div className="code-editor-wrap">
             <div className="line-numbers">{activeContent.split("\n").map((_,i)=><span key={i}>{i+1}</span>)}</div>
             <textarea
+              ref={editorRef}
               className="latex-editor"
               spellCheck={false}
               value={activeContent}
               readOnly={isBinaryAsset}
-              onChange={e=>{if(isBinaryAsset)return;if(activeFile==="main.tex")setSource(e.target.value);else setExtraFiles(current=>({...current,[activeFile]:e.target.value}));setSaved(false);}}
+              onChange={e=>{if(isBinaryAsset)return;if(activeFile==="main.tex"){setSource(e.target.value);setMainFileExists(true);}else setExtraFiles(current=>({...current,[activeFile]:e.target.value}));setSaved(false);}}
               aria-label="LaTeX source editor"
               onKeyDown={e=>{
-                if(e.key==="Tab"){e.preventDefault();const t=e.currentTarget;const start=t.selectionStart;const end=t.selectionEnd;const value=t.value;const next=value.slice(0,start)+"  "+value.slice(end);if(activeFile==="main.tex")setSource(next);else setExtraFiles(current=>({...current,[activeFile]:next}));requestAnimationFrame(()=>{t.selectionStart=t.selectionEnd=start+2;});}
+                if(e.key==="Tab"){e.preventDefault();const t=e.currentTarget;const start=t.selectionStart;const end=t.selectionEnd;const value=t.value;const next=value.slice(0,start)+"  "+value.slice(end);if(activeFile==="main.tex"){setSource(next);setMainFileExists(true);}else setExtraFiles(current=>({...current,[activeFile]:next}));requestAnimationFrame(()=>{t.selectionStart=t.selectionEnd=start+2;});}
               }}
             />
           </div>
@@ -284,7 +395,7 @@ export default function ProjectEditor() {
                 <div className="pdf-line"/><div className="pdf-line medium"/>
                 <div className="pdf-placeholder-watermark"><FileText size={18}/> PDF preview will appear here</div>
               </div>
-              <div className="preview-empty-copy"><strong>Your PDF preview</strong><span>Compile your LaTeX source to generate a real PDF using Tectonic.</span><button className="compile-button" onClick={compileDocument} disabled={compiling}><Play size={14} fill="currentColor"/> {compiling ? "Compiling…" : "Compile document"}</button></div>
+              <div className="preview-empty-copy"><strong>Your PDF preview</strong><span>Compile your LaTeX source to generate a real PDF using Tectonic.</span><button className="compile-button" onClick={compileDocument} disabled={compiling || !activeFile.toLowerCase().endsWith(".tex")}><Play size={14} fill="currentColor"/> {compiling ? "Compiling…" : "Compile document"}</button></div>
             </div>}
             {compileError && <div className="compile-error"><div><AlertCircle size={15}/><strong>{compileError}</strong></div>{compileLogs && <pre>{compileLogs}</pre>}</div>}
           </div>
