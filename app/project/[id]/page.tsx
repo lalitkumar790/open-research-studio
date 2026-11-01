@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { track } from "@vercel/analytics";
 import {
   ArrowLeft, ChevronDown, ChevronRight, FileText, Folder, FolderOpen,
   PanelLeft, PanelRight, Search, Settings, Sparkles, Play, Download,
@@ -154,6 +155,9 @@ export default function ProjectEditor() {
   }, [pdfUrl]);
 
   async function compileDocument() {
+    const compileStartedAt = Date.now();
+    const inputBytes = new Blob([source, ...Object.values(extraFiles)]).size;
+    track("compile_started", { input_bytes: inputBytes, supporting_files: Object.keys(extraFiles).length });
     setCompiling(true);
     setCompileError("");
     setCompileLogs("");
@@ -168,9 +172,11 @@ export default function ProjectEditor() {
         const data = await response.json().catch(() => ({ error: "Compilation failed." }));
         setCompileError(data.error || "Compilation failed.");
         setCompileLogs(data.logs || data.details || "");
+        track("compile_failed", { duration_ms: Date.now() - compileStartedAt, status: response.status });
         return;
       }
       const pdf = await response.blob();
+      track("compile_succeeded", { duration_ms: Date.now() - compileStartedAt, input_bytes: inputBytes, output_bytes: pdf.size });
       const nextUrl = URL.createObjectURL(pdf);
       setPdfUrl(current => {
         if (current) URL.revokeObjectURL(current);
@@ -178,6 +184,7 @@ export default function ProjectEditor() {
       });
       setTab("preview");
     } catch (error) {
+      track("compile_failed", { duration_ms: Date.now() - compileStartedAt, status: "network" });
       setCompileError(error instanceof Error ? error.message : "Could not reach the compiler.");
     } finally {
       setCompiling(false);
@@ -229,7 +236,7 @@ export default function ProjectEditor() {
             <div className="tree-folder"><ChevronDown size={14}/><FolderOpen size={16}/> <span>{name}</span></div>
             <button className={`tree-file ${activeFile==="main.tex"?"active":""}`} onClick={()=>setActiveFile("main.tex")}><FileText size={15}/> main.tex</button>
             {Object.keys(extraFiles).sort().map(file=><button key={file} className={`tree-file ${activeFile===file?"active":""}`} onClick={()=>setActiveFile(file)}><FileText size={15}/> {file}</button>)}
-            <label className="tree-file"><Plus size={15}/> Import files<input type="file" accept=".tex,.bib,.txt,.sty,.cls" multiple hidden onChange={e=>{Array.from(e.target.files??[]).forEach(file=>{if(file.size>200*1024){setNotice(file.name+" exceeds 200 KB.");return;}if(!/\.(tex|bib|txt|sty|cls)$/i.test(file.name)){setNotice("Unsupported file: "+file.name);return;}const reader=new FileReader();reader.onload=()=>setExtraFiles(current=>({...current,[file.name]:String(reader.result??"")}));reader.readAsText(file);});e.currentTarget.value="";}}/></label>
+            <label className="tree-file"><Plus size={15}/> Import files<input type="file" accept=".tex,.bib,.txt,.sty,.cls" multiple hidden onChange={e=>{Array.from(e.target.files??[]).forEach(file=>{if(file.size>200*1024){setNotice(file.name+" exceeds 200 KB.");return;}if(!/\.(tex|bib|txt|sty|cls)$/i.test(file.name)){setNotice("Unsupported file: "+file.name);return;}const reader=new FileReader();reader.onload=()=>{setExtraFiles(current=>({...current,[file.name]:String(reader.result??"")}));track("files_imported",{count:1,bytes:file.size,format:file.name.split(".").pop()||"text"});};reader.readAsText(file);});e.currentTarget.value="";}}/></label>
           </div>
           <div className="file-sidebar-bottom"><Settings size={15}/> Project settings</div>
         </aside>}
