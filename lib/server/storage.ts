@@ -28,12 +28,11 @@ const s3 = new S3Client({
 export type StorageUser = { id: string; neonAuthId: string; email: string };
 
 export async function getStorageContext(request: Request): Promise<{ user: StorageUser } | { error: string; status: number }> {
-  if (!sql || !jwks || !authBaseUrl || !process.env.AWS_ENDPOINT_URL_S3 ||
-      !process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY || !process.env.AWS_REGION) {
+  if (!sql || !jwks || !authBaseUrl) {
     return { error: "Cloud storage is not configured for this deployment.", status: 503 };
   }
   const authorization = request.headers.get("authorization") || "";
-  const match = authorization.match(/^Bearer\\s+(.+)$/i);
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
   if (!match) return { error: "Sign in is required.", status: 401 };
 
   try {
