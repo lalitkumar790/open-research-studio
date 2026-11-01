@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { track } from "@vercel/analytics";
-import DocumentOutline from "@/components/DocumentOutline";
+import DocumentOutline from "../../../components/DocumentOutline";
 import {
   ArrowLeft, ChevronDown, ChevronRight, FileText, Folder, FolderOpen,
   PanelLeft, PanelRight, Search, Settings, Sparkles, Play, Download,
