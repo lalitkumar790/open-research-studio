@@ -5,6 +5,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  neon_auth_user_id UUID UNIQUE REFERENCES neon_auth."user"(id) ON DELETE CASCADE,
   email TEXT NOT NULL UNIQUE,
   name TEXT,
   image_url TEXT,
@@ -13,7 +14,8 @@ CREATE TABLE users (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Auth.js-compatible identity and session tables.
+-- Legacy-compatible identity/session tables retained for future migration only.
+-- Neon Managed Better Auth owns authentication in the neon_auth schema; ORS must not write credentials or sessions here.
 CREATE TABLE accounts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
