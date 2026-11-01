@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { track } from "@vercel/analytics";
 import {
@@ -89,6 +89,7 @@ export default function ProjectEditor() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [compileError, setCompileError] = useState("");
   const [compileLogs, setCompileLogs] = useState("");
+  const directoryInputRef = useRef<HTMLInputElement>(null);
 
   const storageKey = useMemo(() => "ors-project-" + id, [id]);
 
@@ -129,6 +130,26 @@ export default function ProjectEditor() {
     }, 500);
     return () => window.clearTimeout(timer);
   }, [source, name, extraFiles, storageKey, hydrated]);
+
+  function importProjectFiles(fileList: FileList | File[]) {
+    const files = Array.from(fileList);
+    let imported = 0;
+    for (const file of files) {
+      const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+      const normalizedPath = relativePath.replace(/\\/g, "/");
+      const parts = normalizedPath.split("/");
+      if (parts.some(part => !part || part === "." || part === ".." || part.startsWith(".") || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(part))) { setNotice("Unsafe project path: " + relativePath); continue; }
+      if (!/\.(tex|bib|txt|sty|cls|png|jpe?g|pdf)$/i.test(normalizedPath)) { setNotice("Unsupported file: " + relativePath); continue; }
+      if (normalizedPath === "main.tex") { setNotice("The root main.tex is edited in the main editor. Import supporting files instead."); continue; }
+      if (file.size > 2 * 1024 * 1024) { setNotice(relativePath + " exceeds 2 MB."); continue; }
+      const binary = /\.(png|jpe?g|pdf)$/i.test(normalizedPath);
+      const reader = new FileReader();
+      reader.onload = () => { const contents = String(reader.result ?? ""); setExtraFiles(current => ({ ...current, [normalizedPath]: contents })); track("files_imported", { count: 1, bytes: file.size, format: normalizedPath.split(".").pop() || "text" }); };
+      if (binary) reader.readAsDataURL(file); else reader.readAsText(file);
+      imported++;
+    }
+    if (imported) setNotice("Importing " + imported + " project file" + (imported === 1 ? "" : "s") + "…");
+  }
 
   const isBinaryAsset = /\.(png|jpe?g|pdf)$/i.test(activeFile);
   const activeContent = activeFile === "main.tex" ? source : (isBinaryAsset ? "[Binary project asset — included when compiling]" : (extraFiles[activeFile] ?? ""));
@@ -235,7 +256,10 @@ export default function ProjectEditor() {
             <div className="tree-folder"><ChevronDown size={14}/><FolderOpen size={16}/> <span>{name}</span></div>
             <button className={`tree-file ${activeFile==="main.tex"?"active":""}`} onClick={()=>setActiveFile("main.tex")}><FileText size={15}/> main.tex</button>
             {Object.keys(extraFiles).sort().map(file=><button key={file} className={`tree-file ${activeFile===file?"active":""}`} onClick={()=>setActiveFile(file)}><FileText size={15}/> {file}</button>)}
-            <label className="tree-file"><Plus size={15}/> Import files<input type="file" accept=".tex,.bib,.txt,.sty,.cls,.png,.jpg,.jpeg,.pdf" multiple hidden onChange={e=>{Array.from(e.target.files??[]).forEach(file=>{if(file.size>2*1024*1024){setNotice(file.name+" exceeds 2 MB.");return;}if(!/\.(tex|bib|txt|sty|cls|png|jpe?g|pdf)$/i.test(file.name)){setNotice("Unsupported file: "+file.name);return;}const binary=/\.(png|jpe?g|pdf)$/i.test(file.name);const reader=new FileReader();reader.onload=()=>{setExtraFiles(current=>({...current,[file.name]:String(reader.result??"")}));track("files_imported",{count:1,bytes:file.size,format:file.name.split(".").pop()||"text"});};if(binary)reader.readAsDataURL(file);else reader.readAsText(file);});e.currentTarget.value="";}}/></label>
+            <button className="tree-file" onClick={()=>document.getElementById("ors-import-files")?.click()}><Plus size={15}/> Import files</button>
+            <button className="tree-file" onClick={()=>directoryInputRef.current?.click()}><Folder size={15}/> Import folder</button>
+            <input id="ors-import-files" type="file" accept=".tex,.bib,.txt,.sty,.cls,.png,.jpg,.jpeg,.pdf" multiple hidden onChange={e=>{if(e.target.files)importProjectFiles(e.target.files);e.currentTarget.value="";}}/>
+            <input ref={directoryInputRef} type="file" accept=".tex,.bib,.txt,.sty,.cls,.png,.jpg,.jpeg,.pdf" multiple hidden onChange={e=>{if(e.target.files)importProjectFiles(e.target.files);e.currentTarget.value="";}}/>
           </div>
           <div className="file-sidebar-bottom"><Settings size={15}/> Project settings</div>
         </aside>}
