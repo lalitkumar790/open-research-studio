@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { authenticatedFetch } from "../../../lib/auth/client";
 import { track } from "@vercel/analytics";
 import DocumentOutline from "../../../components/DocumentOutline";
 import ReferenceManager from "../../../components/ReferenceManager";
@@ -27,11 +28,13 @@ const outline = [
 
 export default function ProjectEditor() {
   const params = useParams();
+  const router = useRouter();
   const id = String(params.id ?? "project");
   const [name, setName] = useState("New Project");
   const [source, setSource] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [extraFiles, setExtraFiles] = useState<Record<string, string>>({});
+  const [binaryFiles, setBinaryFiles] = useState<Record<string, string>>({});
   const [showFiles, setShowFiles] = useState(true);
   const [showAssistant, setShowAssistant] = useState(true);
   const [assistantText, setAssistantText] = useState("");
@@ -48,74 +51,92 @@ export default function ProjectEditor() {
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const pendingCursorRef = useRef<number | null>(null);
 
-  const storageKey = useMemo(() => "ors-project-" + id, [id]);
+
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const queryName = params.get("name");
-    if (queryName) setName(queryName);
-  }, []);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const queryName = params.get("name");
-    if (queryName) setName(queryName);
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const data = JSON.parse(stored);
-        if (typeof data.source === "string") setSource(data.source);
-        if (typeof data.name === "string") setName(data.name);
-        if (data.extraFiles && typeof data.extraFiles === "object" && !Array.isArray(data.extraFiles)) setExtraFiles(data.extraFiles);
-      } else if (params.get("template") === "example") {
-        setSource(exampleTemplate);
-        setExtraFiles({ "references.bib": exampleReferences });
+    let alive = true;
+    (async () => {
+      try {
+        const response = await authenticatedFetch(`/api/projects/${id}`);
+        if (response.status === 401) { router.replace("/auth"); return; }
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not load project.");
+        if (!alive) return;
+        setName(data.project.name);
+        const text: Record<string,string> = {};
+        const binary: Record<string,string> = {};
+        for (const file of data.files || []) {
+          if (file.isBinary) binary[file.path] = file.id;
+          else if (typeof file.content === "string" && file.path !== "main.tex") text[file.path] = file.content;
+          else if (file.path === "main.tex" && typeof file.content === "string") setSource(file.content);
+        }
+        setExtraFiles(text);
+        setBinaryFiles(binary);
+      } catch (error) {
+        if (alive) setNotice(error instanceof Error ? error.message : "Could not restore this project.");
+      } finally {
+        if (alive) setHydrated(true);
       }
-    } catch {
-      setNotice("This project could not be fully restored from browser storage.");
-    }
-    setHydrated(true);
-  }, [storageKey]);
+    })();
+    return () => { alive = false; };
+  }, [id, router]);
 
   useEffect(() => {
     if (!hydrated) return;
-    const timer = window.setTimeout(() => {
+    setSaved(false);
+    const timer = window.setTimeout(async () => {
       try {
-        localStorage.setItem(storageKey, JSON.stringify({ source, name, extraFiles }));
+        const [renameResponse, filesResponse] = await Promise.all([
+          authenticatedFetch(`/api/projects/${id}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({name}) }),
+          authenticatedFetch(`/api/projects/${id}/files`, { method: "PUT", headers: {"Content-Type":"application/json"}, body: JSON.stringify({files:[{path:"main.tex",content:source},...Object.entries(extraFiles).map(([path,content])=>({path,content}))]}) })
+        ]);
+        if (!renameResponse.ok || !filesResponse.ok) throw new Error("Cloud save failed. Check your connection and sign-in.");
         setSaved(true);
-      } catch { setSaved(false); }
-    }, 500);
+      } catch (error) {
+        setSaved(false);
+        setNotice(error instanceof Error ? error.message : "Could not save project.");
+      }
+    }, 700);
     return () => window.clearTimeout(timer);
-  }, [source, name, extraFiles, storageKey, hydrated]);
+  }, [source, name, extraFiles, id, hydrated]);
 
-  function importProjectFiles(fileList: FileList | File[]) {
+  async function importProjectFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList);
     const relativePaths = files.map(file => (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name);
     const firstSegments = relativePaths.map(path => path.split("/")[0]);
     const commonRoot = files.length > 0 && firstSegments.every(part => part === firstSegments[0]) && relativePaths.every(path => path.includes("/")) ? firstSegments[0] + "/" : "";
-    const projectPaths = relativePaths.map(path => path.replace(/\\/g, "/").slice(commonRoot.length));
-    const entryTexPath = projectPaths.find(path => path.toLowerCase() === "main.tex")
-      ?? projectPaths.find(path => path.toLowerCase().endsWith(".tex"));
+    const projectPaths = relativePaths.map(path => path.replace(/\\\\/g, "/").slice(commonRoot.length));
+    const entryTexPath = projectPaths.find(path => path.toLowerCase() === "main.tex") ?? projectPaths.find(path => path.toLowerCase().endsWith(".tex"));
     let imported = 0;
     for (let index = 0; index < files.length; index++) {
       const file = files[index];
-      const normalizedPath = relativePaths[index].replace(/\\/g, "/").slice(commonRoot.length);
-      const parts = normalizedPath.split("/");
-      if (parts.some(part => !part || part === "." || part === ".." || part.startsWith(".") || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(part))) { setNotice("Unsafe project path: " + normalizedPath); continue; }
-      if (!/\.(tex|bib|txt|sty|cls|png|jpe?g|pdf)$/i.test(normalizedPath)) { setNotice("Unsupported file: " + normalizedPath); continue; }
-      if (file.size > 2 * 1024 * 1024) { setNotice(normalizedPath + " exceeds 2 MB."); continue; }
-      const binary = /\.(png|jpe?g|pdf)$/i.test(normalizedPath);
-      const reader = new FileReader();
-      reader.onload = () => {
-        const contents = String(reader.result ?? "");
-        if (normalizedPath === entryTexPath) setSource(contents);
-        else setExtraFiles(current => ({ ...current, [normalizedPath]: contents }));
-        track("files_imported", { count: 1, bytes: file.size, format: normalizedPath.split(".").pop() || "text" });
-      };
-      if (binary) reader.readAsDataURL(file); else reader.readAsText(file);
-      imported++;
+      const path = projectPaths[index];
+      const parts = path.split("/");
+      if (parts.some(part => !part || part === "." || part === ".." || part.startsWith(".") || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(part))) { setNotice("Unsafe project path: " + path); continue; }
+      if (!/\\.(tex|bib|txt|sty|cls|png|jpe?g|pdf)$/i.test(path)) { setNotice("Unsupported file: " + path); continue; }
+      if (file.size > 10 * 1024 * 1024) { setNotice(path + " exceeds 10 MB."); continue; }
+      if (/\\.(png|jpe?g|pdf)$/i.test(path)) {
+        try {
+          const contentType = file.type || (path.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/octet-stream");
+          const signed = await authenticatedFetch(`/api/projects/${id}/files/upload-url`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({path,contentType,byteSize:file.size}) });
+          const signedData = await signed.json();
+          if (!signed.ok) throw new Error(signedData.error || "Could not prepare upload.");
+          const upload = await fetch(signedData.url, { method:"PUT", headers:{"Content-Type":contentType}, body:file });
+          if (!upload.ok) throw new Error("Upload failed for " + path);
+          const complete = await authenticatedFetch(`/api/projects/${id}/files/${signedData.fileId}/complete`, {method:"POST"});
+          if (!complete.ok) throw new Error("Could not verify " + path);
+          setBinaryFiles(current => ({...current,[path]:signedData.fileId}));
+          imported++;
+        } catch (error) { setNotice(error instanceof Error ? error.message : "Could not upload " + path); }
+      } else {
+        const text = await file.text();
+        if (path === entryTexPath) setSource(text);
+        else setExtraFiles(current => ({...current,[path]:text}));
+        imported++;
+      }
+      track("files_imported", {count:1,bytes:file.size,format:path.split(".").pop()||"text"});
     }
-    if (imported) setNotice("Importing " + imported + " project file" + (imported === 1 ? "" : "s") + "…");
+    if (imported) setNotice("Imported " + imported + " project file" + (imported===1?"":"s") + ".");
   }
 
 
