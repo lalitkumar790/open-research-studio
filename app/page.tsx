@@ -10,21 +10,7 @@ import {
 type Project = { id: number; name: string; created: string; kind?: "document" | "project"; shared?: boolean };
 type Menu = "new" | "import" | "view" | "sort" | "account" | null;
 
-const initialProjects: Project[] = [
-  { id: 1, name: "New Project", created: "16h" },
-  { id: 2, name: "New Project", created: "1mo" },
-  { id: 3, name: "New Project", created: "1mo" },
-  { id: 4, name: "Lalit_Kumar_MTech_Progress_Report", created: "1mo", kind: "document" },
-  { id: 5, name: "Mid term dissertation", created: "1mo" },
-  { id: 6, name: "NPDSM_UPDATED PAPER", created: "2mo" },
-  { id: 7, name: "New Project", created: "2mo" },
-  { id: 8, name: "New Project", created: "3mo" },
-  { id: 9, name: "New Project", created: "3mo" },
-  { id: 10, name: "New Project", created: "3mo" },
-  { id: 11, name: "New Project", created: "3mo" },
-  { id: 12, name: "New Project", created: "3mo" },
-  { id: 13, name: "New Project", created: "3mo" }
-];
+const initialProjects: Project[] = [];
 
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>(initialProjects);
@@ -85,9 +71,12 @@ export default function Home() {
   }, [projects, search, activeNav, sortOldest]);
 
   function createProject(example = false) {
-    const p = { id: Date.now(), name: example ? "Example Project" : "New Project", created: "now" };
+    const id = Date.now();
+    const projectName = example ? "Research Paper — Example" : "Untitled Project";
+    const p = { id, name: projectName, created: "now", kind: "document" as const };
     setProjects(current => [p, ...current]);
     setMenu(null);
+    window.location.href = `/project/${id}?name=${encodeURIComponent(projectName)}&template=${example ? "example" : "blank"}`;
   }
 
   function commitRename(id: number) {
@@ -135,7 +124,7 @@ export default function Home() {
             </div>
             <div className="menu-wrap">
               <button className="toolbar-pill" onClick={() => setMenu(menu === "import" ? null : "import")}>Import <ChevronDown size={16}/></button>
-              {menu === "import" && <div className="dropdown import-menu"><button onClick={() => fileInput.current?.click()}><Upload size={17}/> Upload files</button><button onClick={() => fileInput.current?.click()}><FileText size={17}/> Import LaTeX project (.zip)</button></div>}
+              {menu === "import" && <div className="dropdown import-menu"><button onClick={() => fileInput.current?.click()}><Upload size={17}/> Import source files</button><p className="import-note">Select .tex, .bib, .sty, .cls or .txt files. ZIP import is not available yet.</p></div>}
             </div>
             <div className="menu-wrap">
               <button className="new-button" onClick={() => setMenu(menu === "new" ? null : "new")}><Plus size={19}/> New <ChevronDown size={16}/></button>
@@ -146,7 +135,7 @@ export default function Home() {
                 <button onClick={() => { setShowFolder(true); setMenu(null); }}>New folder</button>
               </div>}
             </div>
-            <input ref={fileInput} type="file" multiple accept=".zip,.tex,.bib,.pdf,.png,.jpg" hidden onChange={e => { if(e.target.files?.length) { const p = {id:Date.now(),name:e.target.files[0].name,created:"now",kind:"document" as const}; setProjects(cur=>[p,...cur]); } e.currentTarget.value=""; }}/>
+            <input ref={fileInput} type="file" multiple accept=".tex,.bib,.txt,.sty,.cls" hidden onChange={e => { const selected = Array.from(e.target.files ?? []); if (!selected.length) return; const main = selected.find(file => file.name.toLowerCase().endsWith(".tex")) ?? selected[0]; const extras = selected.filter(file => file !== main); const id = Date.now(); const projectName = main.name.replace(/\\.[^.]+$/, "") || "Imported Project"; Promise.all([main.text(), ...extras.map(file => file.text())]).then(contents => { const files: Record<string,string> = {}; extras.forEach((file,index) => { files[file.name] = contents[index+1]; }); localStorage.setItem("ors-project-" + id, JSON.stringify({ source: contents[0], name: projectName, extraFiles: files })); setProjects(current => [{id,name:projectName,created:"now",kind:"document"},...current]); window.location.href = `/project/${id}?name=${encodeURIComponent(projectName)}`; }).catch(() => alert("Could not read one or more selected files.")); e.currentTarget.value=""; }}/>
           </div>
         </header>
 
