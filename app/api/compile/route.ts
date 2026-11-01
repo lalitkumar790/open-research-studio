@@ -70,13 +70,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
   }
 
-  const source = (payload as { source?: unknown } | null)?.source;
+  const body = payload as { source?: unknown; files?: unknown } | null;
+  const source = body?.source;
+  const files = body?.files && typeof body.files === "object" && !Array.isArray(body.files) ? body.files as Record<string, unknown> : {};
   if (typeof source !== "string" || !source.trim()) {
     return NextResponse.json({ error: "Provide non-empty LaTeX source in the 'source' field." }, { status: 400 });
   }
-  if (Buffer.byteLength(source, "utf8") > MAX_SOURCE_BYTES) {
-    return NextResponse.json({ error: "The current compiler limit is 200 KB of LaTeX source." }, { status: 413 });
+  const entries = Object.entries(files);
+  if (entries.length > 20) return NextResponse.json({ error: "A project can include at most 20 supporting files." }, { status: 413 });
+  let totalBytes = Buffer.byteLength(source, "utf8");
+  for (const [name, content] of entries) {
+    if (!/^[a-zA-Z0-9_-]+\.(bib|txt|sty|cls)$/.test(name) || typeof content !== "string") {
+      return NextResponse.json({ error: "Supporting files must have safe names and .bib, .txt, .sty or .cls extensions." }, { status: 400 });
+    }
+    totalBytes += Buffer.byteLength(content, "utf8");
   }
+  if (totalBytes > MAX_SOURCE_BYTES) return NextResponse.json({ error: "The total project source limit is 200 KB." }, { status: 413 });
 
   // A per-request temporary workspace prevents concurrent builds from sharing files.
   const workspace = await mkdtemp(path.join(os.tmpdir(), "ors-tex-"));
@@ -85,6 +94,7 @@ export async function POST(request: NextRequest) {
     await mkdir(outputDir, { recursive: true });
     await mkdir("/tmp/ors-tectonic-cache", { recursive: true });
     await writeFile(path.join(workspace, "main.tex"), source, { encoding: "utf8", flag: "wx" });
+    for (const [name, content] of entries) await writeFile(path.join(workspace, name), content as string, { encoding: "utf8", flag: "wx" });
 
     let result;
     try {
