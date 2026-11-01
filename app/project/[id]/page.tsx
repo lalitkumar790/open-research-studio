@@ -10,52 +10,6 @@ import {
   Check, AlertCircle, X, Copy, Maximize2
 } from "lucide-react";
 
-const starter = String.raw`\documentclass[11pt]{article}
-\usepackage[margin=1in]{geometry}
-\usepackage{amsmath, amssymb}
-\usepackage{graphicx}
-\usepackage{booktabs}
-\usepackage{cite}
-
-\title{Research Project}
-\author{Author Name}
-\date{\today}
-
-\begin{document}
-
-\maketitle
-
-\begin{abstract}
-Write your abstract here. Summarize the research problem, methodology,
-key findings, and contribution of this work.
-\end{abstract}
-
-\section{Introduction}
-Introduce the research problem and explain why it matters. Describe the
-context, motivation, and the specific gap this work addresses.
-
-\section{Related Work}
-Review relevant literature and position your contribution.
-
-\section{Methodology}
-Describe the proposed approach in enough detail for reproducibility.
-
-\begin{equation}
-  E = mc^2
-\end{equation}
-
-\section{Results and Discussion}
-Present your findings and discuss their implications.
-
-\section{Conclusion}
-Summarize the contributions and outline future work.
-
-\bibliographystyle{plain}
-\bibliography{references}
-
-\end{document}
-`;
-
 
 const exampleTemplate = "\\documentclass[11pt,a4paper]{article}\n\\usepackage[margin=1in]{geometry}\n\\usepackage{amsmath,amssymb,booktabs,graphicx}\n\\usepackage[numbers]{natbib}\n\\usepackage[hidelinks]{hyperref}\n\n\\title{An Example Research Paper}\n\\author{Author Name\\\\Department / Institution}\n\\date{\\today}\n\n\\begin{document}\n\\maketitle\n\n\\begin{abstract}\nThis example demonstrates a clean starting structure for a research manuscript.\nReplace this paragraph with the research problem, approach, principal results,\nand the contribution of your work. Keep claims precise and evidence-based.\n\\end{abstract}\n\n\\noindent\\textbf{Keywords:} research methodology; reproducibility; scientific writing\n\n\\section{Introduction}\nIntroduce the problem, explain its significance, and identify the gap this work\naddresses. End the section with a concise statement of the paper's contributions.\n\n\\section{Related Work}\nOrganise prior work by theme rather than listing papers one by one. Explain how\nthe present study differs from and builds upon the literature.\n\n\\section{Methodology}\nDescribe the system, dataset, experimental setup, and evaluation protocol so\nanother researcher can reproduce the work.\n\n\\subsection{Mathematical formulation}\nFor example, a simple least-squares objective can be written as\n\\begin{equation}\n  \\hat{\\boldsymbol{\\theta}} =\n  \\arg\\min_{\\boldsymbol{\\theta}}\n  \\sum_{i=1}^{N}\\left(y_i-f(x_i;\\boldsymbol{\\theta})\\right)^2.\n\\end{equation}\n\n\\section{Results and Discussion}\nReport measured results with appropriate units, baselines, and uncertainty.\nDo not invent results: replace this guidance with your actual observations.\n\n\\begin{table}[ht]\n\\centering\n\\caption{Example results table (replace with measured data).}\n\\begin{tabular}{lcc}\n\\toprule\nMethod & Metric A & Metric B \\\\\n\\midrule\nBaseline & -- & -- \\\\\nProposed method & -- & -- \\\\\n\\bottomrule\n\\end{tabular}\n\\end{table}\n\n\\section{Conclusion}\nSummarise the verified contributions, limitations, and concrete future work.\n\n\\section*{Acknowledgements}\nAdd funding and contributor acknowledgements where applicable.\n\n\\bibliographystyle{plainnat}\n\\bibliography{references}\n\\end{document}";
 const exampleReferences = "@article{example2024,\n  author  = {Author, A. and Researcher, B.},\n  title   = {Replace this placeholder with a verified reference},\n  journal = {Journal Name},\n  year    = {2024},\n  volume  = {1},\n  number  = {1},\n  pages   = {1--10}\n}";
@@ -73,9 +27,9 @@ export default function ProjectEditor() {
   const params = useParams();
   const id = String(params.id ?? "project");
   const [name, setName] = useState("New Project");
-  const [source, setSource] = useState(starter);
+  const [source, setSource] = useState("");
   const [hydrated, setHydrated] = useState(false);
-  const [extraFiles, setExtraFiles] = useState<Record<string, string>>({ "references.bib": "% Add BibTeX entries here.\n" });
+  const [extraFiles, setExtraFiles] = useState<Record<string, string>>({});
   const [showFiles, setShowFiles] = useState(true);
   const [showAssistant, setShowAssistant] = useState(true);
   const [assistantText, setAssistantText] = useState("");
