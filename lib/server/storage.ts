@@ -6,7 +6,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 
 const databaseUrl = process.env.DATABASE_URL;
 const authBaseUrl = process.env.NEON_AUTH_BASE_URL;
-const jwksUrl = process.env.NEON_AUTH_JWKS_URL || (authBaseUrl ? `${authBaseUrl.replace(/\\/$/, "")}/jwks` : "");
+const jwksUrl = process.env.NEON_AUTH_JWKS_URL || "";
 const bucket = process.env.NEON_STORAGE_BUCKET || "uploads";
 
 if (!databaseUrl || !authBaseUrl || !jwksUrl) {
@@ -91,16 +91,17 @@ export async function createUploadUrl(input: {
 
   const fileId = crypto.randomUUID();
   const key = `${input.userId}/${input.projectId}/${fileId}`;
-  await sql`
+  const inserted = await sql`
     INSERT INTO project_files (id, project_id, path, storage_key, mime_type, byte_size, is_binary)
     VALUES (${fileId}::uuid, ${input.projectId}::uuid, ${safePath}, ${key}, ${input.contentType}, ${input.byteSize}, TRUE)
     ON CONFLICT (project_id, path)
-    DO UPDATE SET storage_key = EXCLUDED.storage_key, mime_type = EXCLUDED.mime_type,
+    DO UPDATE SET id = EXCLUDED.id, storage_key = EXCLUDED.storage_key, mime_type = EXCLUDED.mime_type,
       byte_size = EXCLUDED.byte_size, is_binary = TRUE, content = NULL
+    RETURNING id::text AS id
   `;
   const command = new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: input.contentType });
   const url = await getSignedUrl(s3, command, { expiresIn: 300 });
-  return { url, fileId, objectKey: key, expiresIn: 300 };
+  return { url, fileId: String(inserted[0].id), objectKey: key, expiresIn: 300 };
 }
 
 export async function createDownloadUrl(userId: string, projectId: string, fileId: string) {
