@@ -15,7 +15,7 @@ The first milestone recreates the signed-in project dashboard shown in the suppl
 - Rename and delete project actions
 - Responsive layout for smaller screens
 
-The dashboard uses sample project rows and browser state. The editor currently supports editing a starter LaTeX document, browser-local autosave, rich-text placeholder preview, and source export. Authentication, server-side persistent storage, real import/parsing, live LaTeX compilation and PDF rendering, AI-provider integration, citations, and collaboration are not yet implemented.
+The dashboard uses sample project rows and browser state. The editor supports editing a starter LaTeX document, browser-local autosave, a PDF preview pane, source export, and a Tectonic compile API that returns real PDF bytes when the Tectonic binary is installed. A Dockerfile and Compose setup package the app with Tectonic for self-hosting. Authentication, server-side persistent project storage, multi-file project uploads, AI-provider integration, citations, and collaboration are not yet implemented.
 
 ## Tech stack
 
@@ -38,9 +38,9 @@ Open http://localhost:3000.
 
 1. Workspace UI and project navigation — implemented
 2. Single-file LaTeX editor with browser-local autosave — initial UI implemented
-3. Three-pane workspace with file tree, source editor, PDF preview area, and AI assistant panel — initial UI implemented
-4. Durable user accounts, project storage, and multi-file uploads
-5. TeX compilation service and real PDF preview
+3. Three-pane workspace with file tree, source editor, PDF preview, and AI assistant panel — initial UI implemented
+4. Tectonic compile API, PDF response, and self-hosted Docker packaging — implemented, requires Tectonic runtime
+5. Durable user accounts, project storage, and multi-file uploads
 6. AI writing and LaTeX debugging assistant backed by a configured provider
 7. Bibliography, citation, figure management, sharing, permissions, and export
 
