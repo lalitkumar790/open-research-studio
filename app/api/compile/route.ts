@@ -56,6 +56,13 @@ function runTectonic(cwd: string, outputDir: string) {
 }
 
 export async function POST(request: NextRequest) {
+  if (process.env.VERCEL) {
+    return NextResponse.json({
+      error: "Online PDF compilation is not enabled on this Vercel deployment yet.",
+      details: "The compiler currently requires the Tectonic executable. Use the Docker deployment for compilation, or wait for the hosted compiler service integration."
+    }, { status: 501 });
+  }
+
   let payload: unknown;
   try {
     payload = await request.json();
