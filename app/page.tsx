@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Settings, PanelLeft, Search, ListFilter, Grid3X3, Plus, ChevronDown,
   ChevronUp, MoreHorizontal, FileText, FolderPlus, Upload, FilePlus2,
@@ -28,6 +28,8 @@ const initialProjects: Project[] = [
 
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>(initialProjects);
+  const [folders, setFolders] = useState<string[]>([]);
+  const [storageReady, setStorageReady] = useState(false);
   const [search, setSearch] = useState("");
   const [activeNav, setActiveNav] = useState("Your Projects");
   const [menu, setMenu] = useState<Menu>(null);
@@ -39,8 +41,38 @@ export default function Home() {
   const [selected, setSelected] = useState<number | null>(null);
   const [folderName, setFolderName] = useState("");
   const [showFolder, setShowFolder] = useState(false);
-  const [folders, setFolders] = useState<string[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    try {
+      const savedProjects = localStorage.getItem("ors-dashboard-projects-v1");
+      const savedFolders = localStorage.getItem("ors-dashboard-folders-v1");
+      if (savedProjects) {
+        const parsed = JSON.parse(savedProjects);
+        if (Array.isArray(parsed)) setProjects(parsed.filter(item =>
+          item && Number.isFinite(item.id) && typeof item.name === "string" && typeof item.created === "string"
+        ));
+      }
+      if (savedFolders) {
+        const parsed = JSON.parse(savedFolders);
+        if (Array.isArray(parsed)) setFolders(parsed.filter(item => typeof item === "string"));
+      }
+    } catch {
+      // Keep the starter workspace available if browser storage is unavailable or invalid.
+    } finally {
+      setStorageReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady) return;
+    try {
+      localStorage.setItem("ors-dashboard-projects-v1", JSON.stringify(projects));
+      localStorage.setItem("ors-dashboard-folders-v1", JSON.stringify(folders));
+    } catch {
+      // Browser storage can be full or disabled; the current session remains usable.
+    }
+  }, [projects, folders, storageReady]);
 
   const visibleProjects = useMemo(() => {
     const q = search.trim().toLowerCase();
