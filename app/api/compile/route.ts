@@ -15,14 +15,18 @@ const COMPILE_TIMEOUT_MS = 35_000;
 const MAX_CONCURRENT_COMPILES = 2;
 let activeCompiles = 0;
 
-type CompilePayload = { source?: unknown; files?: unknown };
+type CompilePayload = { source?: unknown; files?: unknown; entryFile?: unknown };
 
 function validatePayload(payload: unknown) {
   const body = payload as CompilePayload | null;
   const source = body?.source;
+  const entryFile = typeof body?.entryFile === "string" ? body.entryFile : "main.tex";
+  const entrySegments = entryFile.replace(/\\\\/g, "/").split("/");
+  const safeEntry = entryFile.endsWith(".tex") && !entryFile.startsWith("/") && entrySegments.every(segment => segment && segment !== "." && segment !== ".." && /^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(segment) && !segment.startsWith("."));
   const files = body?.files && typeof body.files === "object" && !Array.isArray(body.files)
     ? body.files as Record<string, unknown>
     : {};
+  if (!safeEntry) return { error: "The selected entry file must be a safe relative .tex path.", status: 400 as const };
   if (typeof source !== "string" || !source.trim()) {
     return { error: "Provide non-empty LaTeX source in the 'source' field.", status: 400 as const };
   }
@@ -53,7 +57,8 @@ function validatePayload(payload: unknown) {
     totalBytes += bytes;
   }
   if (totalBytes > MAX_PROJECT_BYTES) return { error: "The total project size limit is 3 MB.", status: 413 as const };
-  return { source, files: files as Record<string, string>, totalBytes };
+  if (Object.prototype.hasOwnProperty.call(files, entryFile)) return { error: "The selected entry file must be sent as source, not as a supporting file.", status: 400 as const };
+  return { source, files: files as Record<string, string>, entryFile, totalBytes };
 }
 
 async function readPayload(request: NextRequest) {
@@ -72,12 +77,12 @@ async function readPayload(request: NextRequest) {
   }
 }
 
-function runTectonic(cwd: string, outputDir: string) {
+function runTectonic(cwd: string, outputDir: string, entryFile: string) {
   return new Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }>((resolve, reject) => {
     const binary = process.env.TECTONIC_BIN || "tectonic";
     const child = spawn(binary, [
       "-X", "compile", "--outdir", outputDir, "--keep-logs",
-      "--keep-intermediates", "--untrusted", "main.tex"
+      "--keep-intermediates", "--untrusted", entryFile
     ], {
       cwd,
       env: { ...process.env, HOME: "/tmp", XDG_CACHE_HOME: "/tmp/ors-tectonic-cache", TECTONIC_UNTRUSTED_MODE: "1" },
@@ -139,7 +144,7 @@ export async function POST(request: NextRequest) {
       const response = await fetch(target, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ source: parsed.source, files: parsed.files }),
+        body: JSON.stringify({ source: parsed.source, files: parsed.files, entryFile: parsed.entryFile }),
         cache: "no-store",
         signal: controller.signal
       }).finally(() => clearTimeout(timer));
@@ -184,7 +189,10 @@ export async function POST(request: NextRequest) {
   try {
     await mkdir(outputDir, { recursive: true });
     await mkdir("/tmp/ors-tectonic-cache", { recursive: true });
-    await writeFile(path.join(workspace, "main.tex"), parsed.source, { encoding: "utf8", flag: "wx" });
+    const entryPath = path.resolve(workspace, parsed.entryFile);
+    if (!entryPath.startsWith(workspace + path.sep)) return NextResponse.json({ error: "Invalid entry file path." }, { status: 400 });
+    await mkdir(path.dirname(entryPath), { recursive: true });
+    await writeFile(entryPath, parsed.source, { encoding: "utf8", flag: "wx" });
     for (const [name, value] of Object.entries(parsed.files)) {
       const filePath = path.resolve(workspace, name);
       if (!filePath.startsWith(workspace + path.sep)) {
@@ -201,7 +209,7 @@ export async function POST(request: NextRequest) {
 
     let result;
     try {
-      result = await runTectonic(workspace, outputDir);
+      result = await runTectonic(workspace, outputDir, parsed.entryFile);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to start Tectonic.";
       if (message.includes("ENOENT")) {
@@ -218,12 +226,13 @@ export async function POST(request: NextRequest) {
       }, { status: 422 });
     }
 
-    const pdfPath = path.join(outputDir, "main.pdf");
+    const outputName = path.basename(parsed.entryFile).replace(/\\.tex$/i, ".pdf");
+    const pdfPath = path.join(outputDir, outputName);
     let pdfStat;
     try {
       pdfStat = await stat(pdfPath);
     } catch {
-      return NextResponse.json({ error: "Tectonic finished but did not produce main.pdf.", logs: result.stderr }, { status: 500 });
+      return NextResponse.json({ error: "Tectonic finished but did not produce ${outputName}.", logs: result.stderr }, { status: 500 });
     }
     if (pdfStat.size > MAX_PDF_BYTES) return NextResponse.json({ error: "The generated PDF exceeds the 12 MB response limit." }, { status: 413 });
 
@@ -232,7 +241,7 @@ export async function POST(request: NextRequest) {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": 'inline; filename="main.pdf"',
+        "Content-Disposition": 'inline; filename="' + outputName + '"',
         "Cache-Control": "no-store",
         "X-Compiler": "Tectonic"
       }
