@@ -129,7 +129,7 @@ export default function Home() {
             <article className="project-row" key={project.id} onDoubleClick={() => { setRenaming(project.id); setRenameValue(project.name); }}>
               <div className="project-thumb">{project.kind === "document" ? <div className="paper-thumb"><span/> <span/> <span/> <span/></div> : <Settings size={19}/>}</div>
               <div className="project-title">
-                {renaming === project.id ? <form onSubmit={e=>{e.preventDefault();commitRename(project.id);}}><input autoFocus value={renameValue} onChange={e=>setRenameValue(e.target.value)} onBlur={()=>commitRename(project.id)} onKeyDown={e=>{if(e.key==="Escape")setRenaming(null);}}/></form> : <a className="project-open-link" href={`/project/${project.id}`} title="Open project">{project.name}</a>}
+                {renaming === project.id ? <form onSubmit={e=>{e.preventDefault();commitRename(project.id);}}><input autoFocus value={renameValue} onChange={e=>setRenameValue(e.target.value)} onBlur={()=>commitRename(project.id)} onKeyDown={e=>{if(e.key==="Escape")setRenaming(null);}}/></form> : <a className="project-open-link" href={`/project/${project.id}?name=${encodeURIComponent(project.name)}`} title="Open project">{project.name}</a>}
               </div>
               <span className="created-time">{project.created}</span>
               <div className="row-menu-wrap">
