@@ -69,7 +69,7 @@ export default function ProjectEditor() {
   const id = String(params.id ?? "project");
   const [name, setName] = useState("New Project");
   const [source, setSource] = useState(starter);
-  const [extraFiles, setExtraFiles] = useState<Record<string, string>>({ "references.bib": "% Add BibTeX entries here.\\n" });
+  const [extraFiles, setExtraFiles] = useState<Record<string, string>>({ "references.bib": "% Add BibTeX entries here.\n" });
   const [tab, setTab] = useState<"preview" | "source">("preview");
   const [showFiles, setShowFiles] = useState(true);
   const [showAssistant, setShowAssistant] = useState(true);
@@ -203,7 +203,7 @@ export default function ProjectEditor() {
             <div className="tree-folder"><ChevronDown size={14}/><FolderOpen size={16}/> <span>{name}</span></div>
             <button className={`tree-file ${activeFile==="main.tex"?"active":""}`} onClick={()=>setActiveFile("main.tex")}><FileText size={15}/> main.tex</button>
             {Object.keys(extraFiles).sort().map(file=><button key={file} className={`tree-file ${activeFile===file?"active":""}`} onClick={()=>setActiveFile(file)}><FileText size={15}/> {file}</button>)}
-            <label className="tree-file"><Plus size={15}/> Import files<input type="file" accept=".bib,.txt,.sty,.cls" multiple hidden onChange={e=>{Array.from(e.target.files??[]).forEach(file=>{if(file.size>200*1024){setNotice(file.name+" exceeds 200 KB.");return;}if(!/\.(bib|txt|sty|cls)$/i.test(file.name)){setNotice("Unsupported file: "+file.name);return;}const reader=new FileReader();reader.onload=()=>setExtraFiles(current=>({...current,[file.name]:String(reader.result??"")}));reader.readAsText(file);});e.currentTarget.value="";}}/></label>
+            <label className="tree-file"><Plus size={15}/> Import files<input type="file" accept=".tex,.bib,.txt,.sty,.cls" multiple hidden onChange={e=>{Array.from(e.target.files??[]).forEach(file=>{if(file.size>200*1024){setNotice(file.name+" exceeds 200 KB.");return;}if(!/\.(tex|bib|txt|sty|cls)$/i.test(file.name)){setNotice("Unsupported file: "+file.name);return;}const reader=new FileReader();reader.onload=()=>setExtraFiles(current=>({...current,[file.name]:String(reader.result??"")}));reader.readAsText(file);});e.currentTarget.value="";}}/></label>
           </div>
           <div className="file-sidebar-bottom"><Settings size={15}/> Project settings</div>
         </aside>}
